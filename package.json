@@ -1,0 +1,30 @@
+{
+  "name": "mem-alice",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test server/ public/",
+    "test:e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-swipe.spec.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.24.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@11.24.0",
+  "type": "module",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}
