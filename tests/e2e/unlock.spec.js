@@ -15,7 +15,6 @@ test.describe('Unlock flow', () => {
 
     // Nothing to decrypt yet, so any passphrase unlocks the app.
     await expect(page.getByTestId('unlock-error')).toHaveCount(0);
-    await expect(page.getByTestId('tab-timeline')).toBeVisible();
     await expect(page.getByTestId('timeline-empty')).toBeVisible();
   });
 
@@ -28,7 +27,7 @@ test.describe('Unlock flow', () => {
     await page.getByTestId('unlock-button').click();
     await expect(page.getByTestId('timeline-empty')).toBeVisible();
 
-    await page.getByTestId('tab-add').click();
+    await page.getByTestId('add-button').click();
     await page.getByTestId('photo-input').setInputFiles(FIXTURE_IMAGE);
     await page.getByTestId('title-input').fill('First milestone');
     await page.getByTestId('save-button').click();
@@ -40,7 +39,7 @@ test.describe('Unlock flow', () => {
     await page.getByTestId('unlock-button').click();
 
     await expect(page.getByTestId('unlock-error')).toBeVisible();
-    await expect(page.getByTestId('tab-timeline')).toHaveCount(0);
+    await expect(page.getByTestId('add-button')).toHaveCount(0);
 
     // The correct passphrase still unlocks afterwards.
     await page.getByTestId('passphrase-input').fill(PASSPHRASE);

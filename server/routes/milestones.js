@@ -28,8 +28,9 @@ function validateMilestonePayload(body) {
  * Builds the /api/milestones router.
  *
  * The server never decrypts anything: it only stores/returns the ciphertext
- * fields provided by the client, plus a server-generated created_at used
- * purely for chronological ordering.
+ * fields provided by the client. There are no dates anywhere - milestones
+ * are ordered purely by insertion order (the autoincrementing id), oldest
+ * first, matching the order photos were uploaded.
  *
  * @param {import('better-sqlite3').Database} db
  * @returns {import('express').Router}
@@ -38,11 +39,11 @@ export function createMilestonesRouter(db) {
   const router = express.Router();
 
   const listStmt = db.prepare(
-    'SELECT id, created_at, title_ct, title_iv, photo_ct, photo_iv, photo_mime FROM milestones ORDER BY created_at DESC, id DESC'
+    'SELECT id, title_ct, title_iv, photo_ct, photo_iv, photo_mime FROM milestones ORDER BY id ASC'
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (created_at, title_ct, title_iv, photo_ct, photo_iv, photo_mime)
-     VALUES (@created_at, @title_ct, @title_iv, @photo_ct, @photo_iv, @photo_mime)`
+    `INSERT INTO milestones (title_ct, title_iv, photo_ct, photo_iv, photo_mime)
+     VALUES (@title_ct, @title_iv, @photo_ct, @photo_iv, @photo_mime)`
   );
 
   router.get('/', (req, res) => {
@@ -58,10 +59,8 @@ export function createMilestonesRouter(db) {
     }
 
     const { title_ct, title_iv, photo_ct, photo_iv, photo_mime } = req.body;
-    const created_at = new Date().toISOString();
 
     const result = insertStmt.run({
-      created_at,
       title_ct,
       title_iv,
       photo_ct,
@@ -69,7 +68,7 @@ export function createMilestonesRouter(db) {
       photo_mime,
     });
 
-    res.status(201).json({ id: result.lastInsertRowid, created_at });
+    res.status(201).json({ id: result.lastInsertRowid });
   });
 
   return router;

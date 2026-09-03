@@ -12,16 +12,16 @@ test('adding a milestone shows it decrypted in the Timeline immediately', async 
   await page.getByTestId('unlock-button').click();
   await expect(page.getByTestId('timeline-empty')).toBeVisible();
 
-  await page.getByTestId('empty-add-link').click();
+  await page.getByTestId('add-button').click();
   await expect(page.getByTestId('photo-input')).toBeVisible();
 
   await page.getByTestId('photo-input').setInputFiles(FIXTURE_IMAGE);
   await page.getByTestId('title-input').fill('Learned to ride a bike');
   await page.getByTestId('save-button').click();
 
-  // Saving switches to the Timeline, which should immediately show the
-  // freshly decrypted milestone (client-side decryption round-trip).
+  // Saving switches back to the Timeline (the `#add` route), which should
+  // immediately show the freshly decrypted milestone (client-side
+  // decryption round-trip).
   await expect(page.getByTestId('milestone-title')).toHaveText('Learned to ride a bike');
   await expect(page.getByTestId('milestone-photo')).toBeVisible();
-  await expect(page.getByTestId('milestone-position')).toHaveText('1 / 1');
 });

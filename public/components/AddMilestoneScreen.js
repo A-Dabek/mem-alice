@@ -27,7 +27,7 @@ async function readFileBytes(file) {
  * Lets the user pick/take a photo and type a title, encrypts both fields
  * client-side with the in-memory AES key (the server never sees plaintext),
  * and POSTs only ciphertext + mime type to /api/milestones. On success,
- * switches the active tab to the Timeline so the new entry is immediately
+ * returns to the Timeline route so the new entry is immediately
  * visible.
  *
  * @param {{ cryptoKey: CryptoKey, onSaved: () => void }} props

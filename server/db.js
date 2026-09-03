@@ -28,10 +28,12 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
     );
   `);
 
+  // No date/timestamp columns: milestones are ordered purely by insertion
+  // order (the autoincrementing id), oldest first - there are no dates
+  // anywhere in this app, including the database.
   db.exec(`
     CREATE TABLE IF NOT EXISTS milestones (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at TEXT NOT NULL,
       title_ct TEXT NOT NULL,
       title_iv TEXT NOT NULL,
       photo_ct TEXT NOT NULL,

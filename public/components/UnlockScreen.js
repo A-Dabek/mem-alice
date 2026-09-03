@@ -43,9 +43,10 @@ async function fetchJson(url) {
  * Passphrase gate.
  *
  * Fetches the (non-secret) salt, derives the AES key from the passphrase in
- * the browser, and validates it by attempting to decrypt the newest
- * milestone's title (if any milestone exists yet). The passphrase itself is
- * never sent to the server - only the derived key lives in memory once
+ * the browser, and validates it by attempting to decrypt one existing
+ * milestone's title (if any milestone exists yet) - any entry works, since
+ * there's no notion of "newest" beyond upload order. The passphrase itself
+ * is never sent to the server - only the derived key lives in memory once
  * unlocked.
  *
  * @param {{ onUnlock: (key: CryptoKey) => void }} props
@@ -79,12 +80,12 @@ export function UnlockScreen({ onUnlock }) {
       }
 
       if (milestones.length > 0) {
-        // Decrypting the newest milestone's title is the only way to
+        // Decrypting any existing milestone's title is the only way to
         // validate the passphrase - a wrong passphrase makes AES-GCM
         // authentication fail here.
-        const newest = milestones[0];
+        const sample = milestones[0];
         try {
-          await decryptText(key, newest.title_ct, newest.title_iv);
+          await decryptText(key, sample.title_ct, sample.title_iv);
         } catch {
           setError(INCORRECT_PASSPHRASE_ERROR);
           return;
@@ -101,8 +102,8 @@ export function UnlockScreen({ onUnlock }) {
 
   return html`
     <div class="unlock-screen">
-      <h1>Milestones</h1>
-      <form onSubmit=${handleSubmit}>
+      <h1>Duże kroki małej Ali</h1>
+      <form onSubmit=${handleSubmit} class="unlock-form">
         <input
           type="password"
           data-testid="passphrase-input"

@@ -1,5 +1,5 @@
 import { h, render } from 'https://esm.sh/preact@10.19.3';
-import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
+import { useEffect, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
 import { UnlockScreen } from './components/UnlockScreen.js';
@@ -7,6 +7,19 @@ import { AddMilestoneScreen } from './components/AddMilestoneScreen.js';
 import { TimelineScreen } from './components/TimelineScreen.js';
 
 const html = htm.bind(h);
+
+const ADD_ROUTE_HASH = '#add';
+
+/**
+ * Reads the current route from the URL hash. The Add screen is a genuine
+ * route (`#add`) rather than in-memory tab state, so the browser's native
+ * back button takes the user back to the Timeline.
+ *
+ * @returns {'add' | 'timeline'}
+ */
+function getRoute() {
+  return window.location.hash === ADD_ROUTE_HASH ? 'add' : 'timeline';
+}
 
 /**
  * Root component.
@@ -17,46 +30,40 @@ const html = htm.bind(h);
  * component's state for the lifetime of the page/session, per the "no
  * persisted passphrase" requirement.
  *
+ * There is no tab bar: the Timeline is the only "home" screen, reached with
+ * a single "Add" button that navigates to the `#add` route.
  */
 function App() {
   const [cryptoKey, setCryptoKey] = useState(null);
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [route, setRoute] = useState(getRoute());
+
+  useEffect(() => {
+    function handleHashChange() {
+      setRoute(getRoute());
+    }
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   if (!cryptoKey) {
     return html`<${UnlockScreen} onUnlock=${setCryptoKey} />`;
   }
 
+  function goToAdd() {
+    window.location.hash = ADD_ROUTE_HASH;
+  }
+
+  function goToTimeline() {
+    window.location.hash = '';
+  }
+
   return html`
     <div class="app-shell">
       <main class="app-content">
-        ${activeTab === 'add'
-          ? html`<${AddMilestoneScreen}
-              cryptoKey=${cryptoKey}
-              onSaved=${() => setActiveTab('timeline')}
-            />`
-          : html`<${TimelineScreen}
-              cryptoKey=${cryptoKey}
-              onAddMilestone=${() => setActiveTab('add')}
-            />`}
+        ${route === 'add'
+          ? html`<${AddMilestoneScreen} cryptoKey=${cryptoKey} onSaved=${goToTimeline} />`
+          : html`<${TimelineScreen} cryptoKey=${cryptoKey} onAddMilestone=${goToAdd} />`}
       </main>
-      <nav class="tab-bar">
-        <button
-          type="button"
-          data-testid="tab-timeline"
-          class=${activeTab === 'timeline' ? 'active' : ''}
-          onClick=${() => setActiveTab('timeline')}
-        >
-          Timeline
-        </button>
-        <button
-          type="button"
-          data-testid="tab-add"
-          class=${activeTab === 'add' ? 'active' : ''}
-          onClick=${() => setActiveTab('add')}
-        >
-          Add
-        </button>
-      </nav>
     </div>
   `;
 }

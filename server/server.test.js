@@ -69,7 +69,6 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
     assert.equal(postResponse.status, 201);
     const postBody = await postResponse.json();
     assert.equal(typeof postBody.id, 'number');
-    assert.equal(typeof postBody.created_at, 'string');
 
     const getResponse = await fetch(`${baseUrl}/api/milestones`);
     assert.equal(getResponse.status, 200);
@@ -77,12 +76,47 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
 
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, postBody.id);
-    assert.equal(rows[0].created_at, postBody.created_at);
     assert.equal(rows[0].title_ct, payload.title_ct);
     assert.equal(rows[0].title_iv, payload.title_iv);
     assert.equal(rows[0].photo_ct, payload.photo_ct);
     assert.equal(rows[0].photo_iv, payload.photo_iv);
     assert.equal(rows[0].photo_mime, payload.photo_mime);
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/milestones returns entries ordered oldest first (by upload/insertion order)', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const makePayload = (label) => ({
+      title_ct: `title-ct-${label}`,
+      title_iv: `title-iv-${label}`,
+      photo_ct: `photo-ct-${label}`,
+      photo_iv: `photo-iv-${label}`,
+      photo_mime: 'image/jpeg',
+    });
+
+    for (const label of ['first', 'second', 'third']) {
+      const response = await fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makePayload(label)),
+      });
+      assert.equal(response.status, 201);
+    }
+
+    const getResponse = await fetch(`${baseUrl}/api/milestones`);
+    const rows = await getResponse.json();
+
+    assert.equal(rows.length, 3);
+    assert.equal(rows[0].title_ct, 'title-ct-first');
+    assert.equal(rows[1].title_ct, 'title-ct-second');
+    assert.equal(rows[2].title_ct, 'title-ct-third');
+    assert.ok(rows[0].id < rows[1].id);
+    assert.ok(rows[1].id < rows[2].id);
+    assert.equal(rows[0].created_at, undefined);
   } finally {
     await close();
   }
