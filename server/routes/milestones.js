@@ -1,6 +1,14 @@
 import express from 'express';
 
-const REQUIRED_FIELDS = ['title_ct', 'title_iv', 'photo_ct', 'photo_iv', 'photo_mime'];
+const REQUIRED_FIELDS = [
+  'title_ct',
+  'title_iv',
+  'subtitle_ct',
+  'subtitle_iv',
+  'photo_ct',
+  'photo_iv',
+  'photo_mime',
+];
 
 /**
  * Validates that the request body only contains opaque ciphertext/metadata
@@ -39,11 +47,11 @@ export function createMilestonesRouter(db) {
   const router = express.Router();
 
   const listStmt = db.prepare(
-    'SELECT id, title_ct, title_iv, photo_ct, photo_iv, photo_mime FROM milestones ORDER BY id ASC'
+    'SELECT id, title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime FROM milestones ORDER BY id ASC'
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title_ct, title_iv, photo_ct, photo_iv, photo_mime)
-     VALUES (@title_ct, @title_iv, @photo_ct, @photo_iv, @photo_mime)`
+    `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime)
+     VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @photo_ct, @photo_iv, @photo_mime)`
   );
 
   router.get('/', (req, res) => {
@@ -58,11 +66,14 @@ export function createMilestonesRouter(db) {
       return;
     }
 
-    const { title_ct, title_iv, photo_ct, photo_iv, photo_mime } = req.body;
+    const { title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime } =
+      req.body;
 
     const result = insertStmt.run({
       title_ct,
       title_iv,
+      subtitle_ct,
+      subtitle_iv,
       photo_ct,
       photo_iv,
       photo_mime,

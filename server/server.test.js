@@ -55,6 +55,8 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
     const payload = {
       title_ct: 'ZmFrZS1jaXBoZXJ0ZXh0',
       title_iv: 'ZmFrZS1pdg==',
+      subtitle_ct: 'ZmFrZS1zdWJ0aXRsZS1jaXBoZXJ0ZXh0',
+      subtitle_iv: 'ZmFrZS1zdWJ0aXRsZS1pdg==',
       photo_ct: 'ZmFrZS1waG90by1jaXBoZXJ0ZXh0',
       photo_iv: 'ZmFrZS1waG90by1pdg==',
       photo_mime: 'image/jpeg',
@@ -78,6 +80,8 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
     assert.equal(rows[0].id, postBody.id);
     assert.equal(rows[0].title_ct, payload.title_ct);
     assert.equal(rows[0].title_iv, payload.title_iv);
+    assert.equal(rows[0].subtitle_ct, payload.subtitle_ct);
+    assert.equal(rows[0].subtitle_iv, payload.subtitle_iv);
     assert.equal(rows[0].photo_ct, payload.photo_ct);
     assert.equal(rows[0].photo_iv, payload.photo_iv);
     assert.equal(rows[0].photo_mime, payload.photo_mime);
@@ -93,6 +97,8 @@ test('GET /api/milestones returns entries ordered oldest first (by upload/insert
     const makePayload = (label) => ({
       title_ct: `title-ct-${label}`,
       title_iv: `title-iv-${label}`,
+      subtitle_ct: `subtitle-ct-${label}`,
+      subtitle_iv: `subtitle-iv-${label}`,
       photo_ct: `photo-ct-${label}`,
       photo_iv: `photo-iv-${label}`,
       photo_mime: 'image/jpeg',

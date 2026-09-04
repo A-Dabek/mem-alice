@@ -73,8 +73,9 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
 
     async function loadOne(milestone) {
       try {
-        const [title, photoBytes] = await Promise.all([
+        const [title, subtitle, photoBytes] = await Promise.all([
           decryptText(cryptoKey, milestone.title_ct, milestone.title_iv),
+          decryptText(cryptoKey, milestone.subtitle_ct, milestone.subtitle_iv),
           decryptField(cryptoKey, milestone.photo_ct, milestone.photo_iv),
         ]);
 
@@ -88,7 +89,7 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
 
         setDecrypted((prev) => ({
           ...prev,
-          [milestone.id]: { title, photoUrl },
+          [milestone.id]: { title, subtitle, photoUrl },
         }));
       } catch {
         if (!cancelled) {
@@ -171,6 +172,13 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                         ? entry.error
                           ? 'Could not decrypt title'
                           : entry.title
+                        : 'Decrypting...'}
+                    </p>
+                    <p class="milestone-subtitle" data-testid="milestone-subtitle">
+                      ${entry
+                        ? entry.error
+                          ? 'Could not decrypt subtitle'
+                          : entry.subtitle
                         : 'Decrypting...'}
                     </p>
                   </div>

@@ -36,11 +36,27 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title_ct TEXT NOT NULL,
       title_iv TEXT NOT NULL,
+      subtitle_ct TEXT NOT NULL DEFAULT '',
+      subtitle_iv TEXT NOT NULL DEFAULT '',
       photo_ct TEXT NOT NULL,
       photo_iv TEXT NOT NULL,
       photo_mime TEXT NOT NULL
     );
   `);
+
+  // Migration for pre-existing databases created before the subtitle field
+  // was added: add the columns (non-nullable, with a default so existing
+  // rows stay valid) if they aren't there yet.
+  const existingColumns = db.prepare('PRAGMA table_info(milestones)').all();
+  const hasSubtitleCt = existingColumns.some((col) => col.name === 'subtitle_ct');
+  const hasSubtitleIv = existingColumns.some((col) => col.name === 'subtitle_iv');
+
+  if (!hasSubtitleCt) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN subtitle_ct TEXT NOT NULL DEFAULT ''`);
+  }
+  if (!hasSubtitleIv) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN subtitle_iv TEXT NOT NULL DEFAULT ''`);
+  }
 
   return db;
 }

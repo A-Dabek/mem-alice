@@ -8,6 +8,7 @@ const html = htm.bind(h);
 
 const NO_PHOTO_ERROR = 'Please choose a photo.';
 const NO_TITLE_ERROR = 'Please enter a title.';
+const NO_SUBTITLE_ERROR = 'Please enter a subtitle.';
 const SAVE_ERROR = 'Could not save this milestone. Please try again.';
 
 /**
@@ -24,8 +25,8 @@ async function readFileBytes(file) {
 /**
  * Add Milestone screen.
  *
- * Lets the user pick/take a photo and type a title, encrypts both fields
- * client-side with the in-memory AES key (the server never sees plaintext),
+ * Lets the user pick/take a photo and type a title and subtitle, encrypts
+ * all fields client-side with the in-memory AES key (the server never sees plaintext),
  * and POSTs only ciphertext + mime type to /api/milestones. On success,
  * returns to the Timeline route so the new entry is immediately
  * visible.
@@ -35,6 +36,7 @@ async function readFileBytes(file) {
 export function AddMilestoneScreen({ cryptoKey, onSaved }) {
   const [photoFile, setPhotoFile] = useState(null);
   const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -61,14 +63,21 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
       return;
     }
 
+    const trimmedSubtitle = subtitle.trim();
+    if (!trimmedSubtitle) {
+      setError(NO_SUBTITLE_ERROR);
+      return;
+    }
+
     setBusy(true);
     setError('');
 
     try {
       const photoBytes = await readFileBytes(photoFile);
 
-      const [encryptedTitle, encryptedPhoto] = await Promise.all([
+      const [encryptedTitle, encryptedSubtitle, encryptedPhoto] = await Promise.all([
         encryptField(cryptoKey, trimmedTitle),
+        encryptField(cryptoKey, trimmedSubtitle),
         encryptField(cryptoKey, photoBytes),
       ]);
 
@@ -78,6 +87,8 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
         body: JSON.stringify({
           title_ct: encryptedTitle.ciphertext,
           title_iv: encryptedTitle.iv,
+          subtitle_ct: encryptedSubtitle.ciphertext,
+          subtitle_iv: encryptedSubtitle.iv,
           photo_ct: encryptedPhoto.ciphertext,
           photo_iv: encryptedPhoto.iv,
           photo_mime: photoFile.type || 'application/octet-stream',
@@ -90,6 +101,7 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
 
       setPhotoFile(null);
       setTitle('');
+      setSubtitle('');
       onSaved();
     } catch {
       setError(SAVE_ERROR);
@@ -120,6 +132,16 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
             placeholder="What happened?"
             value=${title}
             onInput=${(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <label class="field">
+          <span>Subtitle</span>
+          <input
+            type="text"
+            data-testid="subtitle-input"
+            placeholder="A little more detail"
+            value=${subtitle}
+            onInput=${(event) => setSubtitle(event.target.value)}
           />
         </label>
         <button type="submit" data-testid="save-button" disabled=${busy}>
