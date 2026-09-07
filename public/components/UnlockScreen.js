@@ -2,13 +2,15 @@ import { h } from 'https://esm.sh/preact@10.19.3';
 import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { deriveKey, decryptText } from '../crypto.js';
+import { deriveKey, decryptText, encryptField } from '../crypto.js';
 
 const html = htm.bind(h);
 
-const INCORRECT_PASSPHRASE_ERROR = 'Incorrect passphrase. Please try again.';
+const ACCESS_DENIED_ERROR = 'Access denied';
 const SERVER_ERROR = 'Could not reach the server. Please check your connection and try again.';
 const UNEXPECTED_ERROR = 'Unable to unlock right now. Please try again.';
+
+const VERIFIER_TEXT = 'mem-alice-verifier-v1';
 
 class ServerRequestError extends Error {}
 
@@ -37,6 +39,58 @@ async function fetchJson(url) {
   } catch {
     throw new ServerRequestError(SERVER_ERROR);
   }
+}
+
+/**
+ * Fetches verifier ciphertext if set, otherwise returns null (404 = not set).
+ * @returns {Promise<{verifier_ct:string,verifier_iv:string}|null>}
+ */
+async function fetchVerifier() {
+  let response;
+  try {
+    response = await fetch('/api/verifier');
+  } catch {
+    throw new ServerRequestError(SERVER_ERROR);
+  }
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new ServerRequestError(SERVER_ERROR);
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    throw new ServerRequestError(SERVER_ERROR);
+  }
+}
+
+/**
+ * Creates the verifier ciphertext for the given key. 409 (already set) is
+ * not treated as an error - concurrent first unlocks may race.
+ * @param {CryptoKey} key
+ */
+async function createVerifier(key) {
+  const { ciphertext, iv } = await encryptField(key, VERIFIER_TEXT);
+  let response;
+  try {
+    response = await fetch('/api/verifier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verifier_ct: ciphertext, verifier_iv: iv }),
+    });
+  } catch {
+    throw new ServerRequestError(SERVER_ERROR);
+  }
+
+  if (response.ok || response.status === 409) {
+    return;
+  }
+
+  throw new ServerRequestError(SERVER_ERROR);
 }
 
 /**
@@ -74,22 +128,57 @@ export function UnlockScreen({ onUnlock }) {
 
       const key = await deriveKey(passphrase, saltResponse.salt);
 
+      // If verifier exists, it is the sole guard - validate via sentinel decrypt.
+      // This blocks wrong passwords even when DB has no milestones, and avoids
+      // leaking Timeline's "Could not decrypt" fallback.
+      const verifier = await fetchVerifier();
+      if (verifier && typeof verifier.verifier_ct === 'string' && typeof verifier.verifier_iv === 'string') {
+        try {
+          const text = await decryptText(key, verifier.verifier_ct, verifier.verifier_iv);
+          if (text !== VERIFIER_TEXT) {
+            throw new Error('verifier mismatch');
+          }
+        } catch {
+          setError(ACCESS_DENIED_ERROR);
+          return;
+        }
+
+        onUnlock(key);
+        return;
+      }
+
       const milestones = await fetchJson('/api/milestones');
       if (!Array.isArray(milestones)) {
         throw new ServerRequestError(SERVER_ERROR);
       }
 
       if (milestones.length > 0) {
-        // Decrypting any existing milestone's title is the only way to
-        // validate the passphrase - a wrong passphrase makes AES-GCM
-        // authentication fail here.
+        // Legacy path: no verifier yet but milestones exist. Validate via
+        // any milestone's title - wrong passphrase makes AES-GCM auth fail.
         const sample = milestones[0];
         try {
           await decryptText(key, sample.title_ct, sample.title_iv);
         } catch {
-          setError(INCORRECT_PASSPHRASE_ERROR);
+          setError(ACCESS_DENIED_ERROR);
           return;
         }
+
+        // Upgrade: create verifier for future empty-DB checks.
+        try {
+          await createVerifier(key);
+        } catch {
+          // ignore - fetchVerifier will guard next login; 409 is ok
+        }
+
+        onUnlock(key);
+        return;
+      }
+
+      // Empty DB, no verifier: first password sets guard in stone.
+      try {
+        await createVerifier(key);
+      } catch {
+        // ignore - if verifier creation fails due to race, next login will still guard
       }
 
       onUnlock(key);
