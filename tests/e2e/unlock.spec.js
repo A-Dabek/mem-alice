@@ -28,8 +28,11 @@ test.describe('Unlock flow', () => {
     await expect(page.getByTestId('timeline-empty')).toBeVisible();
 
     await page.getByTestId('add-button').click();
-    await page.getByTestId('photo-input').setInputFiles(FIXTURE_IMAGE);
+    // media-input is new, photo-input is legacy alias
+    const input = page.getByTestId('media-input').or(page.getByTestId('photo-input')).first();
+    await input.setInputFiles(FIXTURE_IMAGE);
     await page.getByTestId('title-input').fill('First milestone');
+    await page.getByTestId('subtitle-input').fill('A subtitle for unlock test');
     await page.getByTestId('save-button').click();
     await expect(page.getByTestId('milestone-title')).toHaveText('First milestone');
 

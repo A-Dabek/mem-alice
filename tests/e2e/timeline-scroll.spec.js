@@ -13,6 +13,7 @@ const SUBTITLES = [
   'No more floaties',
   'Cap and gown',
 ];
+const MIMES = ['image/png', 'video/mp4', 'image/jpeg', 'video/mp4'];
 
 test('shows the empty state when there are no milestones yet', async ({ page }) => {
   await page.goto('/');
@@ -38,16 +39,16 @@ test('seeds multiple milestones and renders them as a vertical wall, oldest firs
   for (let i = 0; i < TITLES.length; i++) {
     const encryptedTitle = await encryptField(key, TITLES[i]);
     const encryptedSubtitle = await encryptField(key, SUBTITLES[i]);
-    const encryptedPhoto = await encryptField(key, new Uint8Array([1, 2, 3, 4]));
+    const encryptedMedia = await encryptField(key, new Uint8Array([1, 2, 3, 4]));
     const response = await request.post('/api/milestones', {
       data: {
         title_ct: encryptedTitle.ciphertext,
         title_iv: encryptedTitle.iv,
         subtitle_ct: encryptedSubtitle.ciphertext,
         subtitle_iv: encryptedSubtitle.iv,
-        photo_ct: encryptedPhoto.ciphertext,
-        photo_iv: encryptedPhoto.iv,
-        photo_mime: 'image/png',
+        media_ct: encryptedMedia.ciphertext,
+        media_iv: encryptedMedia.iv,
+        media_mime: MIMES[i],
       },
     });
     expect(response.ok()).toBeTruthy();
@@ -68,7 +69,13 @@ test('seeds multiple milestones and renders them as a vertical wall, oldest firs
   await expect(subtitles).toHaveText(SUBTITLES);
 
   const photos = page.getByTestId('milestone-photo');
-  await expect(photos).toHaveCount(TITLES.length);
+  // Only image/* mimes render as <img>
+  const expectedPhotos = MIMES.filter((m) => m.startsWith('image/')).length;
+  await expect(photos).toHaveCount(expectedPhotos);
+
+  const videos = page.getByTestId('milestone-video');
+  const expectedVideos = MIMES.filter((m) => m === 'video/mp4').length;
+  await expect(videos).toHaveCount(expectedVideos);
 
   // No dates are rendered anywhere on the Timeline.
   await expect(page.getByTestId('milestone-date')).toHaveCount(0);

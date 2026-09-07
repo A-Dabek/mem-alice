@@ -11,7 +11,7 @@ test('Add is a distinct route, and the browser back button returns to the Timeli
   await expect(page.getByTestId('timeline-empty')).toBeVisible();
 
   await page.getByTestId('add-button').click();
-  await expect(page.getByTestId('photo-input')).toBeVisible();
+  await expect(page.getByTestId('media-input').or(page.getByTestId('photo-input')).first()).toBeVisible();
   expect(page.url()).toContain('#add');
 
   await page.goBack();

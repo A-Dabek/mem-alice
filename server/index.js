@@ -19,8 +19,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export function createApp(db) {
   const app = express();
 
-  // Raised limit to accommodate base64-encoded photo payloads.
-  app.use(express.json({ limit: '25mb' }));
+  // Raised limit to accommodate base64-encoded media payloads (100MB binary ~133MB base64).
+  app.use(express.json({ limit: '150mb' }));
 
   app.use(express.static(path.join(__dirname, '..', 'public')));
 

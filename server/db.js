@@ -38,9 +38,9 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       title_iv TEXT NOT NULL,
       subtitle_ct TEXT NOT NULL DEFAULT '',
       subtitle_iv TEXT NOT NULL DEFAULT '',
-      photo_ct TEXT NOT NULL,
-      photo_iv TEXT NOT NULL,
-      photo_mime TEXT NOT NULL
+      media_ct TEXT NOT NULL,
+      media_iv TEXT NOT NULL,
+      media_mime TEXT NOT NULL
     );
   `);
 

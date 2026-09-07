@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test server/ public/",
-    "test:e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-scroll.spec.js && playwright test tests/e2e/routing.spec.js"
+    "test:e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-scroll.spec.js && playwright test tests/e2e/routing.spec.js",
+    "e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-scroll.spec.js && playwright test tests/e2e/routing.spec.js"
   },
   "keywords": [],
   "author": "",

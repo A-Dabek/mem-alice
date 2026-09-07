@@ -5,9 +5,9 @@ const REQUIRED_FIELDS = [
   'title_iv',
   'subtitle_ct',
   'subtitle_iv',
-  'photo_ct',
-  'photo_iv',
-  'photo_mime',
+  'media_ct',
+  'media_iv',
+  'media_mime',
 ];
 
 /**
@@ -29,6 +29,14 @@ function validateMilestonePayload(body) {
     }
   }
 
+  // MIME allowlist: image/* or video/mp4 only. Plaintext mime type is stored as metadata.
+  const mime = body.media_mime;
+  const isImage = typeof mime === 'string' && mime.startsWith('image/');
+  const isVideoMp4 = mime === 'video/mp4';
+  if (!isImage && !isVideoMp4) {
+    return 'Field "media_mime" must be an image/* type or video/mp4';
+  }
+
   return null;
 }
 
@@ -38,7 +46,7 @@ function validateMilestonePayload(body) {
  * The server never decrypts anything: it only stores/returns the ciphertext
  * fields provided by the client. There are no dates anywhere - milestones
  * are ordered purely by insertion order (the autoincrementing id), oldest
- * first, matching the order photos were uploaded.
+ * first, matching the order media were uploaded.
  *
  * @param {import('better-sqlite3').Database} db
  * @returns {import('express').Router}
@@ -47,11 +55,11 @@ export function createMilestonesRouter(db) {
   const router = express.Router();
 
   const listStmt = db.prepare(
-    'SELECT id, title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime FROM milestones ORDER BY id ASC'
+    'SELECT id, title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime FROM milestones ORDER BY id ASC'
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime)
-     VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @photo_ct, @photo_iv, @photo_mime)`
+    `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime)
+     VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @media_ct, @media_iv, @media_mime)`
   );
 
   router.get('/', (req, res) => {
@@ -66,7 +74,7 @@ export function createMilestonesRouter(db) {
       return;
     }
 
-    const { title_ct, title_iv, subtitle_ct, subtitle_iv, photo_ct, photo_iv, photo_mime } =
+    const { title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime } =
       req.body;
 
     const result = insertStmt.run({
@@ -74,12 +82,24 @@ export function createMilestonesRouter(db) {
       title_iv,
       subtitle_ct,
       subtitle_iv,
-      photo_ct,
-      photo_iv,
-      photo_mime,
+      media_ct,
+      media_iv,
+      media_mime,
     });
 
     res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  // Test-only helper to achieve per-test isolation when `pnpm e2e` runs
+  // all specs in a single worker with a shared DB (see playwright.config.js).
+  // Not used in prod; safe to keep — truncates milestones, keeps config/salt.
+  router.delete('/', (req, res) => {
+    db.prepare('DELETE FROM milestones').run();
+    // Reset autoincrement so ids start from 1 again for deterministic tests
+    try {
+      db.prepare("DELETE FROM sqlite_sequence WHERE name='milestones'").run();
+    } catch {}
+    res.json({ ok: true });
   });
 
   return router;

@@ -57,9 +57,9 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
       title_iv: 'ZmFrZS1pdg==',
       subtitle_ct: 'ZmFrZS1zdWJ0aXRsZS1jaXBoZXJ0ZXh0',
       subtitle_iv: 'ZmFrZS1zdWJ0aXRsZS1pdg==',
-      photo_ct: 'ZmFrZS1waG90by1jaXBoZXJ0ZXh0',
-      photo_iv: 'ZmFrZS1waG90by1pdg==',
-      photo_mime: 'image/jpeg',
+      media_ct: 'ZmFrZS1waG90by1jaXBoZXJ0ZXh0',
+      media_iv: 'ZmFrZS1waG90by1pdg==',
+      media_mime: 'image/jpeg',
     };
 
     const postResponse = await fetch(`${baseUrl}/api/milestones`, {
@@ -82,9 +82,9 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
     assert.equal(rows[0].title_iv, payload.title_iv);
     assert.equal(rows[0].subtitle_ct, payload.subtitle_ct);
     assert.equal(rows[0].subtitle_iv, payload.subtitle_iv);
-    assert.equal(rows[0].photo_ct, payload.photo_ct);
-    assert.equal(rows[0].photo_iv, payload.photo_iv);
-    assert.equal(rows[0].photo_mime, payload.photo_mime);
+    assert.equal(rows[0].media_ct, payload.media_ct);
+    assert.equal(rows[0].media_iv, payload.media_iv);
+    assert.equal(rows[0].media_mime, payload.media_mime);
   } finally {
     await close();
   }
@@ -99,9 +99,9 @@ test('GET /api/milestones returns entries ordered oldest first (by upload/insert
       title_iv: `title-iv-${label}`,
       subtitle_ct: `subtitle-ct-${label}`,
       subtitle_iv: `subtitle-iv-${label}`,
-      photo_ct: `photo-ct-${label}`,
-      photo_iv: `photo-iv-${label}`,
-      photo_mime: 'image/jpeg',
+      media_ct: `media-ct-${label}`,
+      media_iv: `media-iv-${label}`,
+      media_mime: 'image/jpeg',
     });
 
     for (const label of ['first', 'second', 'third']) {
@@ -145,6 +145,86 @@ test('POST /api/milestones rejects payloads missing required ciphertext fields',
     const getResponse = await fetch(`${baseUrl}/api/milestones`);
     const rows = await getResponse.json();
     assert.equal(rows.length, 0);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones with media_mime video/mp4 round-trips', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'video/mp4',
+    };
+    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(postResponse.status, 201);
+    const getResponse = await fetch(`${baseUrl}/api/milestones`);
+    const rows = await getResponse.json();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].media_mime, 'video/mp4');
+    assert.equal(rows[0].media_ct, payload.media_ct);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones rejects disallowed mime types like video/webm', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'video/webm',
+    };
+    const response = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(typeof body.error, 'string');
+    assert.match(body.error, /media_mime/);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones rejects application/octet-stream mime', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'application/octet-stream',
+    };
+    const response = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 400);
   } finally {
     await close();
   }

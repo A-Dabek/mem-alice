@@ -32,15 +32,15 @@ async function fetchMilestones() {
  * Fetches the (encrypted) milestone list - oldest first, since there are no
  * dates anywhere and entries are simply ordered by upload order - decrypts
  * every entry with the in-memory AES key, and renders them as a plain
- * vertical wall: one photo with its title underneath, scrollable like a
- * feed. No cards, no swiping, no pagination/infinite scroll.
+ * vertical wall: one media (image or video) with its title underneath,
+ * scrollable like a feed. No cards, no swiping, no pagination/infinite scroll.
  *
  * @param {{ cryptoKey: CryptoKey, onAddMilestone: () => void }} props
  */
 export function TimelineScreen({ cryptoKey, onAddMilestone }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
-  const [decrypted, setDecrypted] = useState({}); // id -> { title, photoUrl } | { error: true }
+  const [decrypted, setDecrypted] = useState({}); // id -> { title, subtitle, mediaUrl, mediaMime, photoUrl } | { error: true }
 
   const objectUrlsRef = useRef(new Set());
 
@@ -73,23 +73,24 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
 
     async function loadOne(milestone) {
       try {
-        const [title, subtitle, photoBytes] = await Promise.all([
+        const [title, subtitle, mediaBytes] = await Promise.all([
           decryptText(cryptoKey, milestone.title_ct, milestone.title_iv),
           decryptText(cryptoKey, milestone.subtitle_ct, milestone.subtitle_iv),
-          decryptField(cryptoKey, milestone.photo_ct, milestone.photo_iv),
+          decryptField(cryptoKey, milestone.media_ct, milestone.media_iv),
         ]);
 
         if (cancelled) {
           return;
         }
 
-        const blob = new Blob([photoBytes], { type: milestone.photo_mime });
-        const photoUrl = URL.createObjectURL(blob);
-        objectUrlsRef.current.add(photoUrl);
+        const mediaMime = milestone.media_mime;
+        const blob = new Blob([mediaBytes], { type: mediaMime });
+        const mediaUrl = URL.createObjectURL(blob);
+        objectUrlsRef.current.add(mediaUrl);
 
         setDecrypted((prev) => ({
           ...prev,
-          [milestone.id]: { title, subtitle, photoUrl },
+          [milestone.id]: { title, subtitle, mediaUrl, mediaMime, photoUrl: mediaUrl },
         }));
       } catch {
         if (!cancelled) {
@@ -153,19 +154,31 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
             <div class="milestone-wall" data-testid="timeline-wall">
               ${milestones.map((milestone) => {
                 const entry = decrypted[milestone.id];
+                const mediaUrl = entry && (entry.mediaUrl || entry.photoUrl);
+                const mediaMime = entry && entry.mediaMime;
+                const isVideo = mediaMime === 'video/mp4';
                 return html`
                   <div class="milestone-item" data-testid="milestone-item" key=${milestone.id}>
-                    ${entry && entry.photoUrl
-                      ? html`
-                          <img
+                    ${entry && mediaUrl
+                      ? isVideo
+                        ? html`<video
+                            class="milestone-video"
+                            data-testid="milestone-video"
+                            src=${mediaUrl}
+                            controls
+                            playsinline
+                            preload="metadata"
+                          ></video>`
+                        : html`<img
                             class="milestone-photo"
                             data-testid="milestone-photo"
-                            src=${entry.photoUrl}
+                            src=${mediaUrl}
                             alt=${entry.title || ''}
-                          />
-                        `
+                          />`
                       : html`<div class="milestone-photo-placeholder" data-testid="milestone-photo-loading">
-                          ${entry && entry.error ? 'Could not decrypt photo' : 'Loading photo...'}
+                          <span data-testid="milestone-media-loading"
+                            >${entry && entry.error ? 'Could not decrypt media' : 'Loading media...'}</span
+                          >
                         </div>`}
                     <p class="milestone-title" data-testid="milestone-title">
                       ${entry

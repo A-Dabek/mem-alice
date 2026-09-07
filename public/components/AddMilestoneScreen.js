@@ -6,10 +6,13 @@ import { encryptField } from '../crypto.js';
 
 const html = htm.bind(h);
 
-const NO_PHOTO_ERROR = 'Please choose a photo.';
+const NO_MEDIA_ERROR = 'Please choose a photo or video.';
 const NO_TITLE_ERROR = 'Please enter a title.';
 const NO_SUBTITLE_ERROR = 'Please enter a subtitle.';
+const FILE_TOO_LARGE_ERROR = 'File must be smaller than 100MB.';
 const SAVE_ERROR = 'Could not save this milestone. Please try again.';
+
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 
 /**
  * Reads a `File` into raw bytes.
@@ -25,24 +28,32 @@ async function readFileBytes(file) {
 /**
  * Add Milestone screen.
  *
- * Lets the user pick/take a photo and type a title and subtitle, encrypts
- * all fields client-side with the in-memory AES key (the server never sees plaintext),
- * and POSTs only ciphertext + mime type to /api/milestones. On success,
- * returns to the Timeline route so the new entry is immediately
- * visible.
+ * Lets the user pick/take a photo or video and type a title and subtitle,
+ * encrypts all fields client-side with the in-memory AES key (the server
+ * never sees plaintext), and POSTs only ciphertext + mime type to
+ * /api/milestones. On success, returns to the Timeline route so the new
+ * entry is immediately visible.
  *
  * @param {{ cryptoKey: CryptoKey, onSaved: () => void }} props
  */
 export function AddMilestoneScreen({ cryptoKey, onSaved }) {
-  const [photoFile, setPhotoFile] = useState(null);
+  const [mediaFile, setMediaFile] = useState(null);
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  function handlePhotoChange(event) {
+  function handleMediaChange(event) {
     const file = event.target.files && event.target.files[0];
-    setPhotoFile(file || null);
+    if (file && file.size > MAX_FILE_SIZE_BYTES) {
+      setError(FILE_TOO_LARGE_ERROR);
+      setMediaFile(null);
+      // reset input value so same file can be re-selected after error
+      event.target.value = '';
+      return;
+    }
+    setError('');
+    setMediaFile(file || null);
   }
 
   async function handleSubmit(event) {
@@ -52,8 +63,13 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
       return;
     }
 
-    if (!photoFile) {
-      setError(NO_PHOTO_ERROR);
+    if (!mediaFile) {
+      setError(NO_MEDIA_ERROR);
+      return;
+    }
+
+    if (mediaFile.size > MAX_FILE_SIZE_BYTES) {
+      setError(FILE_TOO_LARGE_ERROR);
       return;
     }
 
@@ -73,12 +89,12 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
     setError('');
 
     try {
-      const photoBytes = await readFileBytes(photoFile);
+      const mediaBytes = await readFileBytes(mediaFile);
 
-      const [encryptedTitle, encryptedSubtitle, encryptedPhoto] = await Promise.all([
+      const [encryptedTitle, encryptedSubtitle, encryptedMedia] = await Promise.all([
         encryptField(cryptoKey, trimmedTitle),
         encryptField(cryptoKey, trimmedSubtitle),
-        encryptField(cryptoKey, photoBytes),
+        encryptField(cryptoKey, mediaBytes),
       ]);
 
       const response = await fetch('/api/milestones', {
@@ -89,9 +105,9 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
           title_iv: encryptedTitle.iv,
           subtitle_ct: encryptedSubtitle.ciphertext,
           subtitle_iv: encryptedSubtitle.iv,
-          photo_ct: encryptedPhoto.ciphertext,
-          photo_iv: encryptedPhoto.iv,
-          photo_mime: photoFile.type || 'application/octet-stream',
+          media_ct: encryptedMedia.ciphertext,
+          media_iv: encryptedMedia.iv,
+          media_mime: mediaFile.type || 'application/octet-stream',
         }),
       });
 
@@ -99,7 +115,7 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
         throw new Error(SAVE_ERROR);
       }
 
-      setPhotoFile(null);
+      setMediaFile(null);
       setTitle('');
       setSubtitle('');
       onSaved();
@@ -115,15 +131,31 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
       <h1>Add Milestone</h1>
       <form onSubmit=${handleSubmit}>
         <label class="field">
-          <span>Photo</span>
+          <span>Photo or video</span>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,video/mp4"
+            capture="environment"
+            data-testid="media-input"
+            onChange=${handleMediaChange}
+          />
+          <!-- Backwards-compat alias for e2e tests still using photo-input -->
+          <input
+            type="file"
+            accept="image/*,video/mp4"
             capture="environment"
             data-testid="photo-input"
-            onChange=${handlePhotoChange}
+            onChange=${handleMediaChange}
+            style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;"
+            tabindex="-1"
+            aria-hidden="true"
           />
         </label>
+        ${mediaFile
+          ? html`<p class="media-preview" data-testid="media-preview">
+              ${mediaFile.name} — ${(mediaFile.size / (1024 * 1024)).toFixed(2)} MB
+            </p>`
+          : null}
         <label class="field">
           <span>Title</span>
           <input
