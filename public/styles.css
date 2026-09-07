@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Aileron Thin";
+  src: url("/Aileron-Thin.otf") format("opentype");
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
 ::root {
   --color-bg: #ffffff;
   --color-surface: #ffffff;
@@ -298,19 +306,20 @@ input[type="file"]::file-selector-button {
 
 .milestone-title {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: clamp(1.35rem, 5vw, 1.8rem);
+  font-weight: 100;
   line-height: 1.15;
-  text-align: left;
+  text-align: center;
 }
 
 .milestone-subtitle {
   margin: 0.35rem 0 0;
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 100;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-muted);
-  text-align: left;
+  text-align: center;
 }
