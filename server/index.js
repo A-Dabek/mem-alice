@@ -31,6 +31,10 @@ export function createApp(db) {
         reason: 'payload too large',
         limit: '150mb',
       });
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
       return res.status(413).json({ error: 'Payload too large' });
     }
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -39,12 +43,36 @@ export function createApp(db) {
         path: req.path,
         reason: 'invalid json',
       });
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
       return res.status(400).json({ error: 'Invalid JSON' });
     }
     next(err);
   });
 
-  app.use(express.static(path.join(__dirname, '..', 'public')));
+  app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    next();
+  });
+
+  app.use(
+    express.static(path.join(__dirname, '..', 'public'), {
+      etag: false,
+      lastModified: false,
+      cacheControl: false,
+      setHeaders(res) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      },
+    }),
+  );
 
   app.use('/api', createConfigRouter(db));
   app.use('/api/milestones', createMilestonesRouter(db));
@@ -61,6 +89,10 @@ export function createApp(db) {
       path: req.path,
       reason: err.message,
     });
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     res.status(500).json({ error: 'Internal server error' });
   });
 
