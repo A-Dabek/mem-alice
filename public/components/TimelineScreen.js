@@ -1,5 +1,5 @@
 import { h } from 'https://esm.sh/preact@10.19.3';
-import { useEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
 import { decryptField, decryptText } from '../crypto.js';
@@ -41,6 +41,9 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
   const [decrypted, setDecrypted] = useState({}); // id -> { title, subtitle, mediaUrl, mediaMime, photoUrl } | { error: true }
+  const [pendingDeleteId, setPendingDeleteId] = useState(null); // null | number
+  const [deletingId, setDeletingId] = useState(null); // busy
+  const [deleteError, setDeleteError] = useState('');
 
   const objectUrlsRef = useRef(new Set());
 
@@ -116,6 +119,19 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
       objectUrlsRef.current.clear();
     };
   }, []);
+
+  // Escape closes delete confirmation modal
+  const escapeEffect = typeof useLayoutEffect === 'function' ? useLayoutEffect : useEffect;
+  escapeEffect(() => {
+    if (pendingDeleteId === null) return undefined;
+    function onKey(e) { if (e.key === 'Escape' || e.key === 'Esc') setPendingDeleteId(null); }
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pendingDeleteId]);
 
   if (loadError) {
     return html`
@@ -194,11 +210,47 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                           : entry.subtitle
                         : 'Odszyfrowywanie...'}
                     </p>
+                    <button type="button" class="delete-button" data-testid="delete-button" data-id=${milestone.id} onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}>Usuń</button>
                   </div>
                 `;
               })}
             </div>
           `}
+      ${pendingDeleteId !== null ? html`
+        <div class="delete-modal-overlay" data-testid="delete-confirm-dialog" onClick=${() => setPendingDeleteId(null)}>
+          <div class="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" onClick=${e => e.stopPropagation()}>
+            <p id="delete-modal-title" class="delete-modal-title">Czy na pewno usunąć ten kamień milowy?</p>
+            <p class="delete-modal-hint">Tej operacji nie można cofnąć.</p>
+            ${deleteError ? html`<p class="error" data-testid="delete-error">${deleteError}</p>` : null}
+            <div class="delete-modal-actions">
+              <button type="button" class="delete-cancel" data-testid="delete-cancel" disabled=${deletingId !== null} onClick=${() => setPendingDeleteId(null)}>Anuluj</button>
+              <button type="button" class="delete-confirm" data-testid="delete-confirm" disabled=${deletingId !== null} onClick=${async () => {
+                setDeletingId(pendingDeleteId);
+                setDeleteError('');
+                try {
+                  const res = await fetch('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
+                  if (!res.ok) throw new Error('delete failed');
+                  const entry = decrypted[pendingDeleteId];
+                  if (entry && entry.mediaUrl) {
+                    try { URL.revokeObjectURL(entry.mediaUrl); } catch {}
+                    objectUrlsRef.current.delete(entry.mediaUrl);
+                  }
+                  if (entry && entry.photoUrl && entry.photoUrl !== (entry.mediaUrl || '')) {
+                    try { URL.revokeObjectURL(entry.photoUrl); } catch {}
+                    objectUrlsRef.current.delete(entry.photoUrl);
+                  }
+                  setMilestones(prev => prev.filter(m => m.id !== pendingDeleteId));
+                  setDecrypted(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
+                  setPendingDeleteId(null);
+                } catch {
+                  setDeleteError('Nie można usunąć kamienia milowego. Spróbuj ponownie.');
+                } finally {
+                  setDeletingId(null);
+                }
+              }}>${deletingId !== null ? 'Usuwanie...' : 'Usuń'}</button>
+            </div>
+          </div>
+        </div>` : null}
     </div>
   `;
 }

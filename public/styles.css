@@ -280,7 +280,68 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-direction: column;
   gap: 0;
+  position: relative;
 }
+
+.delete-button {
+  position: absolute;
+  top: 0.85rem;
+  left: 1.15rem;
+  min-height: auto;
+  border: 0;
+  border-bottom: 1px solid var(--color-text);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  padding: 0 0 0.15rem;
+  text-transform: uppercase;
+  /* White outline like subtitles — crisp 1px stroke for contrast on dark media */
+  text-shadow:
+    -1px -1px 0 #fff,
+     1px -1px 0 #fff,
+    -1px  1px 0 #fff,
+     1px  1px 0 #fff,
+     0 -1px 0 #fff,
+     0  1px 0 #fff,
+    -1px  0 0 #fff,
+     1px  0 0 #fff;
+}
+
+.delete-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 1.25rem;
+}
+
+.delete-modal {
+  background: #fff;
+  max-width: 28rem;
+  width: 100%;
+  padding: 1.75rem 1.5rem;
+  text-align: center;
+}
+
+.delete-modal-title { margin:0 0 0.4rem; font-size:1.15rem; font-weight:100; line-height:1.2; }
+.delete-modal-hint { margin:0 0 1.25rem; font-size:0.75rem; color:var(--color-muted); letter-spacing:0.06em; }
+.delete-modal-actions { display:flex; gap:0.75rem; justify-content:center; }
+.delete-cancel {
+  flex:1; min-height:var(--touch-target);
+  border:1px solid var(--color-text); background:#fff; color:var(--color-text);
+  font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+}
+.delete-confirm {
+  flex:1; min-height:var(--touch-target);
+  border:none; background:var(--color-accent); color:var(--color-accent-contrast);
+  font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+}
+.delete-cancel:disabled, .delete-confirm:disabled { opacity:0.6; }
 
 .milestone-photo,
 .milestone-video,
@@ -288,6 +349,8 @@ input[type="file"]::file-selector-button {
   width: 100%;
   display: block;
   background: #ffffff;
+  box-sizing: border-box;
+  padding: 0 0.6rem;
 }
 
 .milestone-photo {

@@ -62,6 +62,7 @@ export function createMilestonesRouter(db) {
     `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime)
      VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @media_ct, @media_iv, @media_mime)`
   );
+  const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
 
   router.get('/', (req, res) => {
     const rows = listStmt.all();
@@ -95,6 +96,21 @@ export function createMilestonesRouter(db) {
 
     logger.info('milestone added', { id: result.lastInsertRowid });
     res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  router.delete('/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      logger.warn('error while deleting milestone', { reason: 'invalid id' });
+      return res.status(400).json({ error: 'Invalid milestone id' });
+    }
+    const result = deleteOneStmt.run(id);
+    if (result.changes === 0) {
+      logger.warn('error while deleting milestone', { reason: 'not found', id });
+      return res.status(404).json({ error: 'Milestone not found' });
+    }
+    logger.info('milestone deleted', { id });
+    return res.json({ ok: true });
   });
 
   // Test-only helper to achieve per-test isolation when `pnpm e2e` runs
