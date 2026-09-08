@@ -10,3 +10,4 @@ blob-report/
 playwright/.cache/
 .idea/
 .junie/
+*:Zone.Identifier

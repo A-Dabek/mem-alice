@@ -140,6 +140,7 @@ export function UnlockScreen({ onUnlock }) {
           }
         } catch {
           setError(ACCESS_DENIED_ERROR);
+          setPassphrase('');
           return;
         }
 
@@ -160,6 +161,7 @@ export function UnlockScreen({ onUnlock }) {
           await decryptText(key, sample.title_ct, sample.title_iv);
         } catch {
           setError(ACCESS_DENIED_ERROR);
+          setPassphrase('');
           return;
         }
 
@@ -204,10 +206,10 @@ export function UnlockScreen({ onUnlock }) {
         <button type="submit" data-testid="unlock-button" disabled=${busy}>
           ${busy ? 'Unlocking...' : 'Unlock'}
         </button>
+        ${error
+          ? html`<p class="error" data-testid="unlock-error">${error}</p>`
+          : null}
       </form>
-      ${error
-        ? html`<p class="error" data-testid="unlock-error">${error}</p>`
-        : null}
     </div>
   `;
 }

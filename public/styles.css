@@ -36,7 +36,8 @@ body {
 body {
   background: #ffffff;
   color: var(--color-text);
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 100;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -44,7 +45,10 @@ body {
   height: 100%;
 }
 
-button {
+button,
+input,
+textarea,
+select {
   font-family: inherit;
 }
 
@@ -73,9 +77,9 @@ button {
 /* Shared form styling */
 
 h1 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: clamp(2.25rem, 10vw, 3.25rem);
-  font-weight: 400;
+  font-weight: 100;
   letter-spacing: -0.045em;
   line-height: 0.95;
   margin: 0 0 2.5rem;
@@ -135,9 +139,11 @@ button[type="submit"]:active {
 
 .error {
   color: var(--color-error);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 100;
   font-size: 1rem;
   margin-top: var(--spacing-sm);
+  text-align: center;
 }
 
 /* Unlock screen */
@@ -183,12 +189,11 @@ button[type="submit"]:active {
   content: "A private record";
   display: block;
   margin-top: 1rem;
-  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 0.68rem;
-  font-weight: 700;
+  font-weight: 100;
   letter-spacing: 0.14em;
   line-height: 1.4;
-  text-transform: uppercase;
 }
 
 .add-screen input[type="file"] {
@@ -231,7 +236,8 @@ input[type="file"]::file-selector-button {
 
 .publication-name {
   margin: 0;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 100;
   font-size: 2rem;
   letter-spacing: -0.05em;
   line-height: 1;
@@ -256,7 +262,8 @@ input[type="file"]::file-selector-button {
 
 .empty-state {
   color: var(--color-text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 100;
   font-size: 1.25rem;
   text-align: center;
 }
@@ -272,7 +279,7 @@ input[type="file"]::file-selector-button {
 .milestone-item {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0;
 }
 
 .milestone-photo,
@@ -305,21 +312,20 @@ input[type="file"]::file-selector-button {
 }
 
 .milestone-title {
-  margin: 0;
+  margin: 0.75rem 0 0;
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: clamp(1.35rem, 5vw, 1.8rem);
+  font-size: 1.25rem;
   font-weight: 100;
   line-height: 1.15;
   text-align: center;
 }
 
 .milestone-subtitle {
-  margin: 0.35rem 0 0;
+  margin: 0.15rem 0 0;
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 0.75rem;
   font-weight: 100;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--color-muted);
   text-align: center;
 }
