@@ -48,7 +48,7 @@ test('GET /api/salt generates a salt on first call and persists it', async () =>
   }
 });
 
-test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext', async () => {
+test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext (list omits media_ct/iv, thumb null)', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
@@ -82,9 +82,20 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext'
     assert.equal(rows[0].title_iv, payload.title_iv);
     assert.equal(rows[0].subtitle_ct, payload.subtitle_ct);
     assert.equal(rows[0].subtitle_iv, payload.subtitle_iv);
-    assert.equal(rows[0].media_ct, payload.media_ct);
-    assert.equal(rows[0].media_iv, payload.media_iv);
+    assert.equal(rows[0].media_ct, undefined);
+    assert.equal(rows[0].media_iv, undefined);
     assert.equal(rows[0].media_mime, payload.media_mime);
+    assert.equal(rows[0].thumb_ct, null);
+    assert.equal(rows[0].thumb_iv, null);
+    assert.equal(rows[0].thumb_mime, null);
+
+    // Media is still available via dedicated endpoint
+    const mediaRes = await fetch(`${baseUrl}/api/milestones/${postBody.id}/media`);
+    assert.equal(mediaRes.status, 200);
+    const mediaRow = await mediaRes.json();
+    assert.equal(mediaRow.media_ct, payload.media_ct);
+    assert.equal(mediaRow.media_iv, payload.media_iv);
+    assert.equal(mediaRow.media_mime, payload.media_mime);
   } finally {
     await close();
   }
@@ -123,6 +134,100 @@ test('GET /api/milestones returns entries ordered oldest first (by upload/insert
     assert.ok(rows[0].id < rows[1].id);
     assert.ok(rows[1].id < rows[2].id);
     assert.equal(rows[0].created_at, undefined);
+    // New V1: list omits media_ct/iv but includes thumb null
+    assert.equal(rows[0].media_ct, undefined);
+    assert.equal(rows[0].thumb_ct, null);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones with thumb round-trips and GET list returns thumb but not media', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'image/jpeg',
+      thumb_ct: 'thumbct',
+      thumb_iv: 'thumbiv',
+      thumb_mime: 'image/jpeg',
+    };
+    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(postResponse.status, 201);
+    const { id } = await postResponse.json();
+
+    const getResponse = await fetch(`${baseUrl}/api/milestones`);
+    const rows = await getResponse.json();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, id);
+    assert.equal(rows[0].thumb_ct, payload.thumb_ct);
+    assert.equal(rows[0].thumb_iv, payload.thumb_iv);
+    assert.equal(rows[0].thumb_mime, payload.thumb_mime);
+    assert.equal(rows[0].media_ct, undefined);
+    assert.equal(rows[0].media_mime, 'image/jpeg');
+
+    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
+    assert.equal(mediaRes.status, 200);
+    const mediaRow = await mediaRes.json();
+    assert.equal(mediaRow.media_ct, payload.media_ct);
+  } finally {
+    await close();
+  }
+});
+
+test('POST without thumb succeeds, GET list thumb null, GET /:id/media still returns media', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'video/mp4',
+    };
+    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(postResponse.status, 201);
+    const { id } = await postResponse.json();
+    const getResponse = await fetch(`${baseUrl}/api/milestones`);
+    const rows = await getResponse.json();
+    assert.equal(rows[0].thumb_ct, null);
+    assert.equal(rows[0].thumb_mime, null);
+    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
+    assert.equal(mediaRes.status, 200);
+    const mediaRow = await mediaRes.json();
+    assert.equal(mediaRow.media_mime, 'video/mp4');
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/milestones/:id/media returns 400 for bad id, 404 for missing', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    for (const bad of ['abc', '0', '-1', '1.5']) {
+      const res = await fetch(`${baseUrl}/api/milestones/${bad}/media`);
+      assert.equal(res.status, 400, `expected 400 for id=${bad}`);
+    }
+    const res404 = await fetch(`${baseUrl}/api/milestones/9999/media`);
+    assert.equal(res404.status, 404);
   } finally {
     await close();
   }
@@ -150,7 +255,7 @@ test('POST /api/milestones rejects payloads missing required ciphertext fields',
   }
 });
 
-test('POST /api/milestones with media_mime video/mp4 round-trips', async () => {
+test('POST /api/milestones with media_mime video/mp4 round-trips (via media endpoint)', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
@@ -169,11 +274,16 @@ test('POST /api/milestones with media_mime video/mp4 round-trips', async () => {
       body: JSON.stringify(payload),
     });
     assert.equal(postResponse.status, 201);
+    const { id } = await postResponse.json();
     const getResponse = await fetch(`${baseUrl}/api/milestones`);
     const rows = await getResponse.json();
     assert.equal(rows.length, 1);
     assert.equal(rows[0].media_mime, 'video/mp4');
-    assert.equal(rows[0].media_ct, payload.media_ct);
+    assert.equal(rows[0].media_ct, undefined);
+    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
+    assert.equal(mediaRes.status, 200);
+    const mediaRow = await mediaRes.json();
+    assert.equal(mediaRow.media_ct, payload.media_ct);
   } finally {
     await close();
   }
@@ -218,6 +328,60 @@ test('POST /api/milestones rejects application/octet-stream mime', async () => {
       media_ct: 'mct',
       media_iv: 'miv',
       media_mime: 'application/octet-stream',
+    };
+    const response = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 400);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones rejects thumb with non-image mime', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'image/jpeg',
+      thumb_ct: 'tct',
+      thumb_iv: 'tiv',
+      thumb_mime: 'video/mp4',
+    };
+    const response = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.match(body.error, /thumb_mime/);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones rejects partial thumb fields', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const payload = {
+      title_ct: 'tct',
+      title_iv: 'tiv',
+      subtitle_ct: 'sct',
+      subtitle_iv: 'siv',
+      media_ct: 'mct',
+      media_iv: 'miv',
+      media_mime: 'image/jpeg',
+      thumb_ct: 'only-ct',
     };
     const response = await fetch(`${baseUrl}/api/milestones`, {
       method: 'POST',

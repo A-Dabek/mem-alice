@@ -392,3 +392,14 @@ input[type="file"]::file-selector-button {
   color: var(--color-muted);
   text-align: center;
 }
+
+.milestone-thumb{
+  width:100%; display:block; background:#000; object-fit:cover;
+  padding:0 0.6rem; box-sizing:border-box; cursor:pointer;
+}
+.milestone-load-button{
+  position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  border:1px solid #fff; background:rgba(0,0,0,0.65); color:#fff;
+  font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+  padding:0.6rem 0.9rem; min-height:var(--touch-target);
+}

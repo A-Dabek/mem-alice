@@ -31,16 +31,17 @@ async function fetchMilestones() {
  *
  * Fetches the (encrypted) milestone list - oldest first, since there are no
  * dates anywhere and entries are simply ordered by upload order - decrypts
- * every entry with the in-memory AES key, and renders them as a plain
- * vertical wall: one media (image or video) with its title underneath,
- * scrollable like a feed. No cards, no swiping, no pagination/infinite scroll.
+ * titles/subtitles and thumbnails eagerly, and renders them as a plain
+ * vertical wall: one thumbnail with its title underneath, scrollable like a feed.
+ * Full media is fetched on click (click-to-load) via GET /:id/media, decrypted
+ * and inline-replaced. No cards, no swiping, no pagination/infinite scroll.
  *
  * @param {{ cryptoKey: CryptoKey, onAddMilestone: () => void }} props
  */
 export function TimelineScreen({ cryptoKey, onAddMilestone }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
-  const [decrypted, setDecrypted] = useState({}); // id -> { title, subtitle, mediaUrl, mediaMime, photoUrl } | { error: true }
+  const [decrypted, setDecrypted] = useState({}); // id -> { title, subtitle, thumbUrl, thumbMime, mediaUrl?, mediaMime, mediaState:'idle'|'loading'|'ready', error? }
   const [pendingDeleteId, setPendingDeleteId] = useState(null); // null | number
   const [deletingId, setDeletingId] = useState(null); // busy
   const [deleteError, setDeleteError] = useState('');
@@ -66,7 +67,7 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
     };
   }, []);
 
-  // Decrypt every entry once the list is known.
+  // Decrypt every entry once the list is known — eagerly decrypt titles, subtitles and thumbnails only.
   useEffect(() => {
     if (!milestones || milestones.length === 0) {
       return undefined;
@@ -76,24 +77,42 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
 
     async function loadOne(milestone) {
       try {
-        const [title, subtitle, mediaBytes] = await Promise.all([
+        const [title, subtitle] = await Promise.all([
           decryptText(cryptoKey, milestone.title_ct, milestone.title_iv),
           decryptText(cryptoKey, milestone.subtitle_ct, milestone.subtitle_iv),
-          decryptField(cryptoKey, milestone.media_ct, milestone.media_iv),
         ]);
 
+        let thumbUrl = null;
+        if (milestone.thumb_ct && milestone.thumb_iv) {
+          try {
+            const thumbBytes = await decryptField(cryptoKey, milestone.thumb_ct, milestone.thumb_iv);
+            if (cancelled) return;
+            const blob = new Blob([thumbBytes], { type: milestone.thumb_mime || 'image/jpeg' });
+            thumbUrl = URL.createObjectURL(blob);
+            objectUrlsRef.current.add(thumbUrl);
+          } catch {
+            thumbUrl = null;
+          }
+        }
+
         if (cancelled) {
+          if (thumbUrl) {
+            try { URL.revokeObjectURL(thumbUrl); } catch {}
+            objectUrlsRef.current.delete(thumbUrl);
+          }
           return;
         }
 
-        const mediaMime = milestone.media_mime;
-        const blob = new Blob([mediaBytes], { type: mediaMime });
-        const mediaUrl = URL.createObjectURL(blob);
-        objectUrlsRef.current.add(mediaUrl);
-
         setDecrypted((prev) => ({
           ...prev,
-          [milestone.id]: { title, subtitle, mediaUrl, mediaMime, photoUrl: mediaUrl },
+          [milestone.id]: {
+            title,
+            subtitle,
+            thumbUrl,
+            thumbMime: milestone.thumb_mime,
+            mediaMime: milestone.media_mime,
+            mediaState: 'idle',
+          },
         }));
       } catch {
         if (!cancelled) {
@@ -111,6 +130,23 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
       cancelled = true;
     };
   }, [milestones, cryptoKey]);
+
+  async function loadMedia(id) {
+    const cur = decrypted[id];
+    if (!cur || cur.mediaState !== 'idle') return;
+    setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaState: 'loading' } }));
+    try {
+      const res = await fetch('/api/milestones/' + id + '/media');
+      if (!res.ok) throw new Error('fetch media failed');
+      const { media_ct, media_iv, media_mime } = await res.json();
+      const bytes = await decryptField(cryptoKey, media_ct, media_iv);
+      const url = URL.createObjectURL(new Blob([bytes], { type: media_mime }));
+      objectUrlsRef.current.add(url);
+      setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaUrl: url, mediaMime: media_mime, mediaState: 'ready' } }));
+    } catch {
+      setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaState: 'error', error: true } }));
+    }
+  }
 
   // Revoke object URLs on unmount to avoid leaking memory.
   useEffect(() => {
@@ -169,18 +205,18 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
         : html`
             <div class="milestone-wall" data-testid="timeline-wall">
               ${milestones.map((milestone) => {
-                const entry = decrypted[milestone.id];
-                const mediaUrl = entry && (entry.mediaUrl || entry.photoUrl);
-                const mediaMime = entry && entry.mediaMime;
-                const isVideo = mediaMime === 'video/mp4';
+                const e = decrypted[milestone.id];
+                const isVideo = (e?.mediaMime || milestone.media_mime) === 'video/mp4';
+                const thumbReady = e && e.thumbUrl;
+                const mediaReady = e && e.mediaState === 'ready' && e.mediaUrl;
                 return html`
                   <div class="milestone-item" data-testid="milestone-item" key=${milestone.id}>
-                    ${entry && mediaUrl
+                    ${mediaReady
                       ? isVideo
                         ? html`<video
                             class="milestone-video"
                             data-testid="milestone-video"
-                            src=${mediaUrl}
+                            src=${e.mediaUrl}
                             controls
                             playsinline
                             preload="metadata"
@@ -188,26 +224,61 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                         : html`<img
                             class="milestone-photo"
                             data-testid="milestone-photo"
-                            src=${mediaUrl}
-                            alt=${entry.title || ''}
+                            src=${e.mediaUrl}
+                            alt=${e.title || ''}
                           />`
-                      : html`<div class="milestone-photo-placeholder" data-testid="milestone-photo-loading">
-                          <span data-testid="milestone-media-loading"
-                            >${entry && entry.error ? 'Nie można odszyfrować multimediów' : 'Ładowanie multimediów...'}</span
-                          >
-                        </div>`}
+                      : thumbReady
+                        ? html`
+                            <img
+                              class="milestone-thumb"
+                              data-testid="milestone-thumb"
+                              src=${e.thumbUrl}
+                              alt=${e.title || ''}
+                              loading="lazy"
+                              onClick=${() => loadMedia(milestone.id)}
+                              style="cursor:pointer"
+                            />
+                            <button
+                              type="button"
+                              class="milestone-load-button"
+                              data-testid="milestone-load-button"
+                              disabled=${e.mediaState === 'loading'}
+                              onClick=${() => loadMedia(milestone.id)}
+                            >
+                              ${e.mediaState === 'loading' ? 'Ładowanie...' : isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
+                            </button>
+                          `
+                        : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                            <span data-testid="milestone-media-loading"
+                              >${e && e.error ? 'Nie można odszyfrować podglądu' : 'Ładowanie podglądu...'}</span
+                            >
+                          </div>
+                          ${e && !e.error
+                            ? html`<button
+                                type="button"
+                                class="milestone-load-button"
+                                data-testid="milestone-load-button"
+                                disabled=${e.mediaState === 'loading'}
+                                onClick=${() => loadMedia(milestone.id)}
+                              >
+                                ${e.mediaState === 'loading' ? 'Ładowanie...' : isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
+                              </button>`
+                            : null}`}
+                    ${!mediaReady && e && e.mediaState === 'error'
+                      ? html`<p class="error" data-testid="milestone-media-error">Nie można odszyfrować multimediów</p>`
+                      : null}
                     <p class="milestone-title" data-testid="milestone-title">
-                      ${entry
-                        ? entry.error
+                      ${e
+                        ? e.error
                           ? 'Nie można odszyfrować tytułu'
-                          : entry.title
+                          : e.title
                         : 'Odszyfrowywanie...'}
                     </p>
                     <p class="milestone-subtitle" data-testid="milestone-subtitle">
-                      ${entry
-                        ? entry.error
+                      ${e
+                        ? e.error
                           ? 'Nie można odszyfrować podtytułu'
-                          : entry.subtitle
+                          : e.subtitle
                         : 'Odszyfrowywanie...'}
                     </p>
                     <button type="button" class="delete-button" data-testid="delete-button" data-id=${milestone.id} onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}>Usuń</button>
@@ -231,13 +302,19 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                   const res = await fetch('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
                   if (!res.ok) throw new Error('delete failed');
                   const entry = decrypted[pendingDeleteId];
-                  if (entry && entry.mediaUrl) {
-                    try { URL.revokeObjectURL(entry.mediaUrl); } catch {}
-                    objectUrlsRef.current.delete(entry.mediaUrl);
-                  }
-                  if (entry && entry.photoUrl && entry.photoUrl !== (entry.mediaUrl || '')) {
-                    try { URL.revokeObjectURL(entry.photoUrl); } catch {}
-                    objectUrlsRef.current.delete(entry.photoUrl);
+                  if (entry) {
+                    if (entry.mediaUrl) {
+                      try { URL.revokeObjectURL(entry.mediaUrl); } catch {}
+                      objectUrlsRef.current.delete(entry.mediaUrl);
+                    }
+                    if (entry.thumbUrl) {
+                      try { URL.revokeObjectURL(entry.thumbUrl); } catch {}
+                      objectUrlsRef.current.delete(entry.thumbUrl);
+                    }
+                    if (entry.photoUrl && entry.photoUrl !== (entry.mediaUrl || '') && entry.photoUrl !== (entry.thumbUrl || '')) {
+                      try { URL.revokeObjectURL(entry.photoUrl); } catch {}
+                      objectUrlsRef.current.delete(entry.photoUrl);
+                    }
                   }
                   setMilestones(prev => prev.filter(m => m.id !== pendingDeleteId));
                   setDecrypted(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });

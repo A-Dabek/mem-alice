@@ -15,6 +15,7 @@ async function seedMilestones(request, titles, subtitles, mimes) {
     const encTitle = await encryptField(key, titles[i]);
     const encSubtitle = await encryptField(key, subtitles[i]);
     const encMedia = await encryptField(key, new Uint8Array([1, 2, 3, 4]));
+    const encThumb = await encryptField(key, new Uint8Array([1, 2, 3]));
     const res = await request.post('/api/milestones', {
       data: {
         title_ct: encTitle.ciphertext,
@@ -24,6 +25,9 @@ async function seedMilestones(request, titles, subtitles, mimes) {
         media_ct: encMedia.ciphertext,
         media_iv: encMedia.iv,
         media_mime: mimes[i],
+        thumb_ct: encThumb.ciphertext,
+        thumb_iv: encThumb.iv,
+        thumb_mime: 'image/jpeg',
       },
     });
     expect(res.ok()).toBeTruthy();
@@ -45,6 +49,8 @@ test('deleting a milestone with confirmation removes it from the wall', async ({
   await expect(page.getByTestId('timeline-wall')).toBeVisible();
   await expect(page.getByTestId('delete-button')).toHaveCount(3);
   await expect(page.getByTestId('milestone-title')).toHaveText(titles);
+  // V1: thumbnails are shown initially
+  await expect(page.getByTestId('milestone-thumb')).toHaveCount(3);
 
   // First click -> modal appears; cancel keeps items
   await page.getByTestId('delete-button').first().click();
@@ -99,8 +105,14 @@ test('deleting video milestone revokes video element', async ({ page, request })
   await page.getByTestId('passphrase-input').fill(PASSPHRASE);
   await page.getByTestId('unlock-button').click();
 
-  await expect(page.getByTestId('milestone-video')).toHaveCount(1);
+  // V1 click-to-load: initially thumbnail, no video
+  await expect(page.getByTestId('milestone-thumb')).toHaveCount(1);
+  await expect(page.getByTestId('milestone-video')).toHaveCount(0);
   await expect(page.getByTestId('delete-button')).toHaveCount(1);
+
+  // Load full video
+  await page.getByTestId('milestone-load-button').first().click();
+  await expect(page.getByTestId('milestone-video')).toHaveCount(1);
 
   await page.getByTestId('delete-button').first().click();
   await expect(page.getByTestId('delete-confirm-dialog')).toBeVisible();
@@ -108,6 +120,7 @@ test('deleting video milestone revokes video element', async ({ page, request })
 
   await expect(page.getByTestId('delete-confirm-dialog')).toBeHidden();
   await expect(page.getByTestId('milestone-video')).toHaveCount(0);
+  await expect(page.getByTestId('milestone-thumb')).toHaveCount(0);
   await expect(page.getByTestId('delete-button')).toHaveCount(0);
   await expect(page.getByTestId('timeline-empty')).toBeVisible();
 });

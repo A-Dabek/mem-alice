@@ -40,6 +40,7 @@ test('seeds multiple milestones and renders them as a vertical wall, oldest firs
     const encryptedTitle = await encryptField(key, TITLES[i]);
     const encryptedSubtitle = await encryptField(key, SUBTITLES[i]);
     const encryptedMedia = await encryptField(key, new Uint8Array([1, 2, 3, 4]));
+    const encryptedThumb = await encryptField(key, new Uint8Array([1, 2, 3]));
     const response = await request.post('/api/milestones', {
       data: {
         title_ct: encryptedTitle.ciphertext,
@@ -49,6 +50,9 @@ test('seeds multiple milestones and renders them as a vertical wall, oldest firs
         media_ct: encryptedMedia.ciphertext,
         media_iv: encryptedMedia.iv,
         media_mime: MIMES[i],
+        thumb_ct: encryptedThumb.ciphertext,
+        thumb_iv: encryptedThumb.iv,
+        thumb_mime: 'image/jpeg',
       },
     });
     expect(response.ok()).toBeTruthy();
@@ -68,14 +72,26 @@ test('seeds multiple milestones and renders them as a vertical wall, oldest firs
   await expect(subtitles).toHaveCount(SUBTITLES.length);
   await expect(subtitles).toHaveText(SUBTITLES);
 
-  const photos = page.getByTestId('milestone-photo');
-  // Only image/* mimes render as <img>
-  const expectedPhotos = MIMES.filter((m) => m.startsWith('image/')).length;
-  await expect(photos).toHaveCount(expectedPhotos);
+  // V1 click-to-load: initially only thumbnails, no full media
+  const thumbs = page.getByTestId('milestone-thumb');
+  await expect(thumbs).toHaveCount(TITLES.length);
+  await expect(page.getByTestId('milestone-photo')).toHaveCount(0);
+  await expect(page.getByTestId('milestone-video')).toHaveCount(0);
+  await expect(page.getByTestId('milestone-load-button')).toHaveCount(TITLES.length);
 
-  const videos = page.getByTestId('milestone-video');
-  const expectedVideos = MIMES.filter((m) => m === 'video/mp4').length;
-  await expect(videos).toHaveCount(expectedVideos);
+  // Click first thumbnail (image) to load full media
+  await page.getByTestId('milestone-load-button').first().click();
+  // First MIMES[0] is image/png -> should show photo
+  await expect(page.getByTestId('milestone-photo')).toHaveCount(1);
+  await expect(page.getByTestId('milestone-video')).toHaveCount(0);
+  await expect(page.getByTestId('milestone-thumb')).toHaveCount(TITLES.length - 1);
+
+  // Click second (now first remaining thumb is video) — should show video
+  // After first load, thumbs: indices 1..3 remain, first of those is video/mp4
+  await page.getByTestId('milestone-load-button').first().click();
+  await expect(page.getByTestId('milestone-video')).toHaveCount(1);
+  await expect(page.getByTestId('milestone-photo')).toHaveCount(1);
+  await expect(page.getByTestId('milestone-thumb')).toHaveCount(TITLES.length - 2);
 
   // No dates are rendered anywhere on the Timeline.
   await expect(page.getByTestId('milestone-date')).toHaveCount(0);

@@ -58,6 +58,22 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
     db.exec(`ALTER TABLE milestones ADD COLUMN subtitle_iv TEXT NOT NULL DEFAULT ''`);
   }
 
+  // Migration for thumbnail columns (V1 click-to-load): nullable for
+  // best-effort/back-compat — old rows have no thumb, Timeline shows placeholder.
+  const hasThumbCt = existingColumns.some((col) => col.name === 'thumb_ct');
+  const hasThumbIv = existingColumns.some((col) => col.name === 'thumb_iv');
+  const hasThumbMime = existingColumns.some((col) => col.name === 'thumb_mime');
+
+  if (!hasThumbCt) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_ct TEXT`);
+  }
+  if (!hasThumbIv) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_iv TEXT`);
+  }
+  if (!hasThumbMime) {
+    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_mime TEXT`);
+  }
+
   return db;
 }
 

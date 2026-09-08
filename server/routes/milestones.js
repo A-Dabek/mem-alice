@@ -38,6 +38,20 @@ function validateMilestonePayload(body) {
     return 'Field "media_mime" must be an image/* type or video/mp4';
   }
 
+  // Optional thumbnail triple: if any thumb field is present, all three must be present and valid.
+  const hasAnyThumb = body.thumb_ct !== undefined || body.thumb_iv !== undefined || body.thumb_mime !== undefined;
+  if (hasAnyThumb) {
+    for (const field of ['thumb_ct', 'thumb_iv', 'thumb_mime']) {
+      if (typeof body[field] !== 'string' || body[field].length === 0) {
+        return `Field "${field}" is required and must be a non-empty string`;
+      }
+    }
+    const thumbMime = body.thumb_mime;
+    if (typeof thumbMime !== 'string' || !thumbMime.startsWith('image/')) {
+      return 'Field "thumb_mime" must be an image/* type';
+    }
+  }
+
   return null;
 }
 
@@ -56,11 +70,12 @@ export function createMilestonesRouter(db) {
   const router = express.Router();
 
   const listStmt = db.prepare(
-    'SELECT id, title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime FROM milestones ORDER BY id ASC'
+    'SELECT id, title_ct, title_iv, subtitle_ct, subtitle_iv, media_mime, thumb_ct, thumb_iv, thumb_mime FROM milestones ORDER BY id ASC'
   );
+  const getMediaStmt = db.prepare('SELECT media_ct, media_iv, media_mime FROM milestones WHERE id = ?');
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime)
-     VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @media_ct, @media_iv, @media_mime)`
+    `INSERT INTO milestones (title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime, thumb_ct, thumb_iv, thumb_mime)
+     VALUES (@title_ct, @title_iv, @subtitle_ct, @subtitle_iv, @media_ct, @media_iv, @media_mime, @thumb_ct, @thumb_iv, @thumb_mime)`
   );
   const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
 
@@ -69,19 +84,36 @@ export function createMilestonesRouter(db) {
     res.json(rows);
   });
 
+  router.get('/:id/media', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      logger.warn('error while fetching media', { reason: 'invalid id' });
+      return res.status(400).json({ error: 'Invalid milestone id' });
+    }
+    const row = getMediaStmt.get(id);
+    if (!row) {
+      logger.warn('error while fetching media', { reason: 'not found', id });
+      return res.status(404).json({ error: 'Milestone not found' });
+    }
+    res.json(row);
+  });
+
   router.post('/', (req, res) => {
     const error = validateMilestonePayload(req.body);
     if (error) {
       // Never log req.body — see AGENTS.md:30; reason is enum/field name only
-      const safeReason = error === 'Field "media_mime" must be an image/* type or video/mp4'
-        ? 'invalid media_mime'
-        : error;
+      let safeReason = error;
+      if (error === 'Field "media_mime" must be an image/* type or video/mp4') {
+        safeReason = 'invalid media_mime';
+      } else if (error === 'Field "thumb_mime" must be an image/* type') {
+        safeReason = 'invalid thumb_mime';
+      }
       logger.warn('error while adding milestone', { reason: safeReason });
       res.status(400).json({ error });
       return;
     }
 
-    const { title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime } =
+    const { title_ct, title_iv, subtitle_ct, subtitle_iv, media_ct, media_iv, media_mime, thumb_ct = null, thumb_iv = null, thumb_mime = null } =
       req.body;
 
     const result = insertStmt.run({
@@ -92,6 +124,9 @@ export function createMilestonesRouter(db) {
       media_ct,
       media_iv,
       media_mime,
+      thumb_ct,
+      thumb_iv,
+      thumb_mime,
     });
 
     logger.info('milestone added', { id: result.lastInsertRowid });

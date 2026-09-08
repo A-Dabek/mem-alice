@@ -1,5 +1,5 @@
 import { h } from 'https://esm.sh/preact@10.19.3';
-import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
+import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
 import { encryptField } from '../crypto.js';
@@ -25,6 +25,75 @@ async function readFileBytes(file) {
   return new Uint8Array(buffer);
 }
 
+async function imageToThumbBytes(file, maxW = 640, mime = 'image/jpeg', q = 0.70) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxW / bitmap.width);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  if (typeof bitmap.close === 'function') bitmap.close();
+  const blob = await new Promise((r) => canvas.toBlob(r, mime, q));
+  if (!blob) throw new Error('thumb toBlob failed');
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function videoToThumbBytes(file, maxW = 640, mime = 'image/jpeg', q = 0.70, seek = 0.5) {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = url;
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = 'metadata';
+  video.style.position = 'fixed';
+  video.style.left = '-9999px';
+  video.style.width = '1px';
+  video.style.height = '1px';
+  video.style.opacity = '0';
+  // Append to DOM to ensure metadata loading in headless browsers
+  try { document.body.appendChild(video); } catch {}
+  try {
+    await new Promise((res, rej) => {
+      const timeout = setTimeout(() => rej(new Error('video load timeout')), 5000);
+      video.onloadedmetadata = () => { clearTimeout(timeout); res(); };
+      video.onerror = () => { clearTimeout(timeout); rej(new Error('video load')); };
+      // In case metadata already loaded
+      if (video.readyState >= 1) { clearTimeout(timeout); res(); }
+    });
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      const t = Math.min(seek, Math.max(0, video.duration - 0.1));
+      video.currentTime = t;
+      await new Promise((res) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; res(); } };
+        video.onseeked = finish;
+        video.onerror = finish;
+        setTimeout(finish, 800);
+      });
+      // Give a tick for frame render
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const scale = Math.min(1, maxW / (video.videoWidth || maxW));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round((video.videoWidth || maxW) * scale);
+    canvas.height = Math.round((video.videoHeight || maxW * 9 / 16) * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('canvas 2d unavailable');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, mime, q));
+    if (!blob) throw new Error('video thumb toBlob failed');
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    try { if (video.parentNode) video.parentNode.removeChild(video); } catch {}
+    URL.revokeObjectURL(url);
+  }
+}
+
+function chooseThumbGenerator(file) {
+  return file.type.startsWith('image/') ? imageToThumbBytes : videoToThumbBytes;
+}
+
 /**
  * Add Milestone screen.
  *
@@ -42,18 +111,67 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
   const [subtitle, setSubtitle] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [thumbBytes, setThumbBytes] = useState(null);
+  const [thumbPreviewUrl, setThumbPreviewUrl] = useState(null);
+  const thumbPreviewRef = useRef(null);
+
+  // Revoke previous thumb preview URL when it changes or on unmount
+  useEffect(() => {
+    return () => {
+      if (thumbPreviewRef.current) {
+        try { URL.revokeObjectURL(thumbPreviewRef.current); } catch {}
+      }
+      if (thumbPreviewUrl) {
+        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    // Keep ref in sync for cleanup
+    thumbPreviewRef.current = thumbPreviewUrl;
+  }, [thumbPreviewUrl]);
 
   function handleMediaChange(event) {
     const file = event.target.files && event.target.files[0];
     if (file && file.size > MAX_FILE_SIZE_BYTES) {
       setError(FILE_TOO_LARGE_ERROR);
       setMediaFile(null);
+      setThumbBytes(null);
+      if (thumbPreviewUrl) {
+        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
+        setThumbPreviewUrl(null);
+      }
       // reset input value so same file can be re-selected after error
       event.target.value = '';
       return;
     }
     setError('');
     setMediaFile(file || null);
+
+    // Thumbnail generation is best-effort, never blocks save.
+    if (thumbPreviewUrl) {
+      try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
+      setThumbPreviewUrl(null);
+    }
+    setThumbBytes(null);
+    if (file) {
+      try {
+        const gen = chooseThumbGenerator(file);
+        gen(file).then((bytes) => {
+          setThumbBytes(bytes);
+          try {
+            const blob = new Blob([bytes], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            setThumbPreviewUrl(url);
+          } catch {}
+        }).catch(() => {
+          setThumbBytes(null);
+        });
+      } catch {
+        setThumbBytes(null);
+      }
+    }
   }
 
   async function handleSubmit(event) {
@@ -97,6 +215,15 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
         encryptField(cryptoKey, mediaBytes),
       ]);
 
+      let encryptedThumb = null;
+      if (thumbBytes) {
+        try {
+          encryptedThumb = await encryptField(cryptoKey, thumbBytes);
+        } catch {
+          encryptedThumb = null;
+        }
+      }
+
       const response = await fetch('/api/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,6 +235,7 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
           media_ct: encryptedMedia.ciphertext,
           media_iv: encryptedMedia.iv,
           media_mime: mediaFile.type || 'application/octet-stream',
+          ...(encryptedThumb ? { thumb_ct: encryptedThumb.ciphertext, thumb_iv: encryptedThumb.iv, thumb_mime: 'image/jpeg' } : {}),
         }),
       });
 
@@ -118,6 +246,11 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
       setMediaFile(null);
       setTitle('');
       setSubtitle('');
+      setThumbBytes(null);
+      if (thumbPreviewUrl) {
+        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
+        setThumbPreviewUrl(null);
+      }
       onSaved();
     } catch {
       setError(SAVE_ERROR);
@@ -155,6 +288,9 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
           ? html`<p class="media-preview" data-testid="media-preview">
               ${mediaFile.name} — ${(mediaFile.size / (1024 * 1024)).toFixed(2)} MB
             </p>`
+          : null}
+        ${thumbPreviewUrl
+          ? html`<img data-testid="thumb-preview" src=${thumbPreviewUrl} alt="Podgląd miniatury" style="width:100%;max-width:320px;display:block;margin:0.5rem 0;" />`
           : null}
         <label class="field">
           <span>Tytuł</span>
