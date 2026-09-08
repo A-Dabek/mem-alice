@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import { logger } from '../logger.js';
 
 const SALT_KEY = 'pbkdf2_salt';
 const VERIFIER_CT_KEY = 'verifier_ct';
@@ -57,11 +58,13 @@ export function createConfigRouter(db) {
     const { verifier_ct, verifier_iv } = req.body || {};
 
     if (typeof verifier_ct !== 'string' || verifier_ct.length === 0) {
+      logger.warn('error while creating verifier', { reason: 'missing verifier_ct' });
       res.status(400).json({ error: 'Field "verifier_ct" is required and must be a non-empty string' });
       return;
     }
 
     if (typeof verifier_iv !== 'string' || verifier_iv.length === 0) {
+      logger.warn('error while creating verifier', { reason: 'missing verifier_iv' });
       res.status(400).json({ error: 'Field "verifier_iv" is required and must be a non-empty string' });
       return;
     }
@@ -70,6 +73,7 @@ export function createConfigRouter(db) {
     const existingIv = getStmt.get(VERIFIER_IV_KEY);
 
     if (existingCt && existingIv) {
+      logger.warn('error while creating verifier', { reason: 'already set' });
       res.status(409).json({ error: 'verifier already set' });
       return;
     }
@@ -80,10 +84,12 @@ export function createConfigRouter(db) {
 
     // If another request won the race between our check and insert, treat as conflict
     if (ctResult.changes === 0 || ivResult.changes === 0) {
+      logger.warn('error while creating verifier', { reason: 'already set' });
       res.status(409).json({ error: 'verifier already set' });
       return;
     }
 
+    logger.info('verifier created');
     res.status(201).json({ ok: true });
   });
 

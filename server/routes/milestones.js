@@ -1,4 +1,5 @@
 import express from 'express';
+import { logger } from '../logger.js';
 
 const REQUIRED_FIELDS = [
   'title_ct',
@@ -70,6 +71,11 @@ export function createMilestonesRouter(db) {
   router.post('/', (req, res) => {
     const error = validateMilestonePayload(req.body);
     if (error) {
+      // Never log req.body — see AGENTS.md:30; reason is enum/field name only
+      const safeReason = error === 'Field "media_mime" must be an image/* type or video/mp4'
+        ? 'invalid media_mime'
+        : error;
+      logger.warn('error while adding milestone', { reason: safeReason });
       res.status(400).json({ error });
       return;
     }
@@ -87,6 +93,7 @@ export function createMilestonesRouter(db) {
       media_mime,
     });
 
+    logger.info('milestone added', { id: result.lastInsertRowid });
     res.status(201).json({ id: result.lastInsertRowid });
   });
 
