@@ -6,11 +6,11 @@ import { encryptField } from '../crypto.js';
 
 const html = htm.bind(h);
 
-const NO_MEDIA_ERROR = 'Please choose a photo or video.';
-const NO_TITLE_ERROR = 'Please enter a title.';
-const NO_SUBTITLE_ERROR = 'Please enter a subtitle.';
-const FILE_TOO_LARGE_ERROR = 'File must be smaller than 100MB.';
-const SAVE_ERROR = 'Could not save this milestone. Please try again.';
+const NO_MEDIA_ERROR = 'Wybierz zdjęcie lub wideo.';
+const NO_TITLE_ERROR = 'Wpisz tytuł.';
+const NO_SUBTITLE_ERROR = 'Wpisz podtytuł.';
+const FILE_TOO_LARGE_ERROR = 'Plik musi być mniejszy niż 100 MB.';
+const SAVE_ERROR = 'Nie można zapisać kamienia milowego. Spróbuj ponownie.';
 
 const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 
@@ -128,10 +128,10 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
 
   return html`
     <div class="add-screen">
-      <h1>Add Milestone</h1>
+      <h1>Dodaj kamień milowy</h1>
       <form onSubmit=${handleSubmit}>
         <label class="field">
-          <span>Photo or video</span>
+          <span>Zdjęcie lub wideo</span>
           <input
             type="file"
             accept="image/*,video/mp4"
@@ -157,27 +157,27 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
             </p>`
           : null}
         <label class="field">
-          <span>Title</span>
+          <span>Tytuł</span>
           <input
             type="text"
             data-testid="title-input"
-            placeholder="What happened?"
+            placeholder="Co się wydarzyło?"
             value=${title}
             onInput=${(event) => setTitle(event.target.value)}
           />
         </label>
         <label class="field">
-          <span>Subtitle</span>
+          <span>Podtytuł</span>
           <input
             type="text"
             data-testid="subtitle-input"
-            placeholder="A little more detail"
+            placeholder="Dodaj trochę szczegółów"
             value=${subtitle}
             onInput=${(event) => setSubtitle(event.target.value)}
           />
         </label>
         <button type="submit" data-testid="save-button" disabled=${busy}>
-          ${busy ? 'Saving...' : 'Save'}
+          ${busy ? 'Zapisywanie...' : 'Zapisz'}
         </button>
       </form>
       ${error

@@ -6,7 +6,7 @@ import { decryptField, decryptText } from '../crypto.js';
 
 const html = htm.bind(h);
 
-const LOAD_ERROR = 'Could not load milestones. Please try again.';
+const LOAD_ERROR = 'Nie można wczytać kamieni milowych. Spróbuj ponownie.';
 
 /**
  * Fetches the (still-encrypted) milestone list, oldest first.
@@ -127,27 +127,27 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
 
   if (milestones === null) {
     return html`
-      <div class="timeline-screen" data-testid="timeline-loading">Loading...</div>
+      <div class="timeline-screen" data-testid="timeline-loading">Ładowanie...</div>
     `;
   }
 
   return html`
     <div class="timeline-screen">
       <header class="timeline-masthead">
-        <p class="publication-name">Milestones</p>
+        <p class="publication-name">Kamienie milowe</p>
         <button
           type="button"
           class="add-button"
           data-testid="add-button"
           onClick=${onAddMilestone}
         >
-          Add
+          Dodaj
         </button>
       </header>
       ${milestones.length === 0
         ? html`
             <div class="empty-state" data-testid="timeline-empty">
-              <p>No milestones yet.</p>
+              <p>Brak wpisów.</p>
             </div>
           `
         : html`
@@ -177,22 +177,22 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                           />`
                       : html`<div class="milestone-photo-placeholder" data-testid="milestone-photo-loading">
                           <span data-testid="milestone-media-loading"
-                            >${entry && entry.error ? 'Could not decrypt media' : 'Loading media...'}</span
+                            >${entry && entry.error ? 'Nie można odszyfrować multimediów' : 'Ładowanie multimediów...'}</span
                           >
                         </div>`}
                     <p class="milestone-title" data-testid="milestone-title">
                       ${entry
                         ? entry.error
-                          ? 'Could not decrypt title'
+                          ? 'Nie można odszyfrować tytułu'
                           : entry.title
-                        : 'Decrypting...'}
+                        : 'Odszyfrowywanie...'}
                     </p>
                     <p class="milestone-subtitle" data-testid="milestone-subtitle">
                       ${entry
                         ? entry.error
-                          ? 'Could not decrypt subtitle'
+                          ? 'Nie można odszyfrować podtytułu'
                           : entry.subtitle
-                        : 'Decrypting...'}
+                        : 'Odszyfrowywanie...'}
                     </p>
                   </div>
                 `;

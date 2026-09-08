@@ -186,7 +186,7 @@ button[type="submit"]:active {
 }
 
 .add-screen h1::after {
-  content: "A private record";
+  content: "Prywatny zapis";
   display: block;
   margin-top: 1rem;
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;

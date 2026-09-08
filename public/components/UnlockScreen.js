@@ -6,9 +6,9 @@ import { deriveKey, decryptText, encryptField } from '../crypto.js';
 
 const html = htm.bind(h);
 
-const ACCESS_DENIED_ERROR = 'Access denied';
-const SERVER_ERROR = 'Could not reach the server. Please check your connection and try again.';
-const UNEXPECTED_ERROR = 'Unable to unlock right now. Please try again.';
+const ACCESS_DENIED_ERROR = 'Nieprawidłowe hasło';
+const SERVER_ERROR = 'Nie można połączyć się z serwerem. Sprawdź połączenie i spróbuj ponownie.';
+const UNEXPECTED_ERROR = 'Nie można teraz odblokować. Spróbuj ponownie.';
 
 const VERIFIER_TEXT = 'mem-alice-verifier-v1';
 
@@ -198,13 +198,13 @@ export function UnlockScreen({ onUnlock }) {
         <input
           type="password"
           data-testid="passphrase-input"
-          placeholder="Enter passphrase"
+          placeholder="Wpisz hasło"
           value=${passphrase}
           onInput=${(event) => setPassphrase(event.target.value)}
           autofocus
         />
         <button type="submit" data-testid="unlock-button" disabled=${busy}>
-          ${busy ? 'Unlocking...' : 'Unlock'}
+          ${busy ? 'Odblokowywanie...' : 'Odblokuj'}
         </button>
         ${error
           ? html`<p class="error" data-testid="unlock-error">${error}</p>`
