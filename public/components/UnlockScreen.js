@@ -193,7 +193,7 @@ export function UnlockScreen({ onUnlock }) {
 
   return html`
     <div class="unlock-screen">
-      <h1>Duże kroki małej Ali</h1>
+      <h1>Małe kroki<br />małej Ali</h1>
       <form onSubmit=${handleSubmit} class="unlock-form">
         <input
           type="password"
