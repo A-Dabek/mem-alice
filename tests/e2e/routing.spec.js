@@ -1,17 +1,19 @@
 import { test, expect } from '@playwright/test';
 
-const PASSPHRASE = 'correct horse battery staple';
+import { setupApp } from './helpers/app.js';
+import { isolateDb } from './helpers/test.js';
 
-test('Add is a distinct route, and the browser back button returns to the Timeline', async ({
+isolateDb(test);
+
+test('Add is a distinct route and the browser back button returns to the Timeline', async ({
   page,
 }) => {
+  await setupApp(page);
   await page.goto('/');
-  await page.getByTestId('passphrase-input').fill(PASSPHRASE);
-  await page.getByTestId('unlock-button').click();
   await expect(page.getByTestId('timeline-empty')).toBeVisible();
 
   await page.getByTestId('add-button').click();
-  await expect(page.getByTestId('media-input').or(page.getByTestId('photo-input')).first()).toBeVisible();
+  await expect(page.getByTestId('picker-button')).toBeVisible();
   expect(page.url()).toContain('#add');
 
   await page.goBack();

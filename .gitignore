@@ -4,6 +4,9 @@ data/
 *.db-journal
 *.db-wal
 *.db-shm
+.env
+.env.*
+!.env.example
 test-results/
 playwright-report/
 blob-report/

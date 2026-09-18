@@ -1,12 +1,30 @@
 import express from 'express';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import { openDb } from './db.js';
 import { createMilestonesRouter } from './routes/milestones.js';
+import { createAuthMiddleware } from './auth.js';
 import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Resolves the installed MSAL ESM `dist` directories for vending to the browser.
+ * The package ships unbundled ESM (relative imports + two bare specifiers),
+ * which `index.html`'s import map resolves to these paths.
+ *
+ * @returns {{ browserDist: string, commonDist: string }}
+ */
+function resolveMsalDist() {
+  const browserEntry = fileURLToPath(import.meta.resolve('@azure/msal-browser'));
+  const browserDist = path.dirname(browserEntry);
+  const requireFromBrowser = createRequire(browserEntry);
+  const commonEntry = requireFromBrowser.resolve('@azure/msal-common/browser');
+  const commonDist = path.resolve(path.dirname(commonEntry), '..', 'dist');
+  return { browserDist, commonDist };
+}
 
 /**
  * Creates the Express app. The server only stores picker references and
@@ -14,9 +32,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * flows through here. Request bodies are never logged.
  *
  * @param {import('better-sqlite3').Database} db
+ * @param {{ auth?: import('express').RequestHandler }} [options]
  * @returns {import('express').Express}
  */
-export function createApp(db) {
+export function createApp(db, { auth = createAuthMiddleware() } = {}) {
   const app = express();
 
   app.use(express.json());
@@ -59,6 +78,19 @@ export function createApp(db) {
     }),
   );
 
+  // Vendored MSAL v4 ESM (served from node_modules, never from the deprecated
+  // MSAL CDN). `public/index.html` maps the bare specifiers here.
+  try {
+    const { browserDist, commonDist } = resolveMsalDist();
+    const vendorOptions = {
+      setHeaders: (res) => res.setHeader('Content-Type', 'text/javascript'),
+    };
+    app.use('/vendor/msal-browser', express.static(browserDist, vendorOptions));
+    app.use('/vendor/msal-common', express.static(commonDist, vendorOptions));
+  } catch {
+    logger.warn('vendored MSAL could not be resolved - sign-in will fail');
+  }
+
   app.get('/api/config', (req, res) => {
     res.json({
       clientId: process.env.MS_CLIENT_ID ?? null,
@@ -67,7 +99,7 @@ export function createApp(db) {
     });
   });
 
-  app.use('/api/milestones', createMilestonesRouter(db));
+  app.use('/api/milestones', auth, createMilestonesRouter(db));
 
   app.use((req, res) => {
     logger.warn('unknown route', { method: req.method, path: req.path });

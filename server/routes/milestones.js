@@ -6,9 +6,56 @@ const REQUIRED_FIELDS = ['title', 'drive_item_id', 'media_mime'];
 const LIST_COLUMNS =
   'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, item_name';
 
+const ALLOWED_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'video/mp4',
+]);
+
+const MAX_LENGTHS = {
+  title: 200,
+  subtitle: 500,
+  drive_item_id: 512,
+  drive_id: 512,
+  item_name: 512,
+  drive_endpoint: 2048,
+};
+
+const ALLOWED_ENDPOINT_HOSTS = [
+  'onedrive.com',
+  'sharepoint.com',
+  'live.com',
+  'svc.ms',
+  'microsoftpersonalcontent.com',
+];
+
 /**
- * Validates the milestone payload. No auth or MIME allowlist yet (PoC) - just
- * enough to guarantee the columns the UI relies on are present and typed.
+ * Re-checks a client-provided `drive_endpoint` before persisting it. The server
+ * never fetches it, but a bad value would be handed back to other clients.
+ *
+ * @param {string} endpoint
+ * @returns {boolean}
+ */
+function endpointAllowed(endpoint) {
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  return ALLOWED_ENDPOINT_HOSTS.some(
+    (domain) => host === domain || host.endsWith(`.${domain}`)
+  );
+}
+
+/**
+ * Validates the milestone payload: required fields, types, MIME allowlist,
+ * length caps and the endpoint host re-check. The server never fetches the
+ * endpoint; this only guarantees sane stored values.
  *
  * @param {unknown} body
  * @returns {string | null} an error message, or null if valid.
@@ -28,6 +75,21 @@ function validateMilestonePayload(body) {
     if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string') {
       return `Field "${field}" must be a string`;
     }
+  }
+
+  if (!ALLOWED_MIME.has(body.media_mime)) {
+    return `Unsupported media type "${body.media_mime}"`;
+  }
+
+  for (const [field, max] of Object.entries(MAX_LENGTHS)) {
+    const value = body[field];
+    if (typeof value === 'string' && value.length > max) {
+      return `Field "${field}" must be at most ${max} characters`;
+    }
+  }
+
+  if (body.drive_endpoint && !endpointAllowed(body.drive_endpoint)) {
+    return 'Field "drive_endpoint" must be an allowlisted https host';
   }
 
   return null;

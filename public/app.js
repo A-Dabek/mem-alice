@@ -2,7 +2,8 @@ import { h, render } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { getAccount } from './auth.js';
+import { getAccount, signOut } from './auth.js';
+import { clearResolutionCache } from './onedriveCache.js';
 import { SignInScreen } from './components/SignInScreen.js';
 import { AddMilestoneScreen } from './components/AddMilestoneScreen.js';
 import { TimelineScreen } from './components/TimelineScreen.js';
@@ -33,6 +34,7 @@ function App() {
   const [account, setAccount] = useState(null);
   const [ready, setReady] = useState(false);
   const [route, setRoute] = useState(getRoute());
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,8 +77,38 @@ function App() {
     window.location.hash = '';
   }
 
+  async function handleSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('[app] sign out failed', error);
+    } finally {
+      clearResolutionCache();
+      setAccount(null);
+      window.location.hash = '';
+      setRoute('timeline');
+      setSigningOut(false);
+    }
+  }
+
   return html`
     <div class="app-shell">
+      <header class="app-header">
+        <span class="app-account" data-testid="app-account"
+          >${account.name || account.username || ''}</span
+        >
+        <button
+          type="button"
+          class="signout-button"
+          data-testid="signout-button"
+          disabled=${signingOut}
+          onClick=${handleSignOut}
+        >
+          ${signingOut ? 'Wylogowywanie...' : 'Wyloguj'}
+        </button>
+      </header>
       <main class="app-content">
         ${route === 'add'
           ? html`<${AddMilestoneScreen} onSaved=${goToTimeline} />`

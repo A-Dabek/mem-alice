@@ -112,10 +112,6 @@ export function pickFile(token) {
       switch (command.command) {
         case 'authenticate': {
           try {
-            console.log('[picker] authenticate', {
-              type: command.type,
-              resource: command.resource,
-            });
             // The consumer picker always wants the OneDrive token; its
             // `resource` is informational. Requesting `${resource}/.default`
             // against /consumers fails with AADSTS9002332, so ignore it and

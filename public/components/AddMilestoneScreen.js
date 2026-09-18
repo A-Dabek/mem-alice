@@ -4,7 +4,7 @@ import htm from 'https://esm.sh/htm@3.1.1';
 
 import { pickFile } from '../picker.js';
 import { resolveItem } from '../onedrive.js';
-import { getPickerToken } from '../auth.js';
+import { fetchWithAuth, getPickerToken } from '../auth.js';
 
 const html = htm.bind(h);
 
@@ -102,7 +102,7 @@ export function AddMilestoneScreen({ onSaved }) {
     setError('');
 
     try {
-      const response = await fetch('/api/milestones', {
+      const response = await fetchWithAuth('/api/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

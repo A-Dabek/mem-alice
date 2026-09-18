@@ -5,10 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Małe kroki małej Ali</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "@azure/msal-browser": "/vendor/msal-browser/index.mjs",
+        "@azure/msal-common/browser": "/vendor/msal-common/index-browser.mjs"
+      }
+    }
+  </script>
 </head>
 <body>
   <div id="app"></div>
-  <script src="https://alcdn.msauth.net/browser/2.19.0/js/msal-browser.min.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

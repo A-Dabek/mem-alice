@@ -10,7 +10,7 @@ import { createApp } from './index.js';
  */
 function startTestServer() {
   const db = openDb(':memory:');
-  const app = createApp(db);
+  const app = createApp(db, { auth: (req, res, next) => next() });
 
   return new Promise((resolve) => {
     const server = app.listen(0, () => {
@@ -226,6 +226,85 @@ test('DELETE /api/milestones bulk truncates and resets ids', async () => {
     });
     assert.equal(post2.status, 201);
     assert.equal((await post2.json()).id, 1);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones enforces the MIME allowlist', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const post = (payload) =>
+      fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+    for (const mime of ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4']) {
+      const res = await post({ ...makePayload(mime), media_mime: mime });
+      assert.equal(res.status, 201, `expected 201 for ${mime}`);
+    }
+
+    for (const mime of ['image/svg+xml', 'application/pdf', 'text/html', 'video/webm']) {
+      const res = await post({ ...makePayload(mime), media_mime: mime });
+      assert.equal(res.status, 400, `expected 400 for ${mime}`);
+    }
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones enforces length caps', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const post = (payload) =>
+      fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+    assert.equal((await post({ ...makePayload('ok'), title: 'x'.repeat(200) })).status, 201);
+    assert.equal((await post({ ...makePayload('long'), title: 'x'.repeat(201) })).status, 400);
+    assert.equal((await post({ ...makePayload('sub'), subtitle: 'x'.repeat(501) })).status, 400);
+    assert.equal(
+      (await post({ ...makePayload('id'), drive_item_id: 'x'.repeat(513) })).status,
+      400
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones re-checks the drive_endpoint host', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const post = (endpoint) =>
+      fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...makePayload(endpoint), drive_endpoint: endpoint }),
+      });
+
+    for (const endpoint of [
+      'https://api.onedrive.com/v1.0',
+      'https://my.microsoftpersonalcontent.com/_api/v2.0',
+      'https://tenant-my.sharepoint.com',
+    ]) {
+      assert.equal((await post(endpoint)).status, 201, `expected 201 for ${endpoint}`);
+    }
+
+    for (const endpoint of [
+      'http://api.onedrive.com/v1.0',
+      'https://evil.example/v1.0',
+      'https://onedrive.com.evil.example/v1.0',
+    ]) {
+      assert.equal((await post(endpoint)).status, 400, `expected 400 for ${endpoint}`);
+    }
   } finally {
     await close();
   }

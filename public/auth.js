@@ -1,18 +1,26 @@
 /**
  * Microsoft identity (MSAL) helpers.
  *
- * The MSAL browser library is loaded globally from the CDN (`window.msal`,
- * see index.html). We read the app registration values from /api/config so
- * no client id is hard-coded in the bundle.
+ * MSAL v4 is vendored from npm and served from `/vendor/msal-browser`
+ * (see `index.html`'s import map); there is no CDN/global. We read the app
+ * registration values from /api/config so no client id is hard-coded.
  *
- * Two token audiences are needed:
- *  - Graph (`Files.Read`) only to complete the sign-in consent flow.
- *  - OneDrive (`OneDrive.ReadOnly`) to hand the picker a token and to resolve
- *    picked items through the `@sharePoint.endpoint` the picker returns.
+ * Sign-in requests only OIDC scopes (`openid profile email`). Media access uses
+ * the OneDrive audience (`OneDrive.ReadOnly`) to hand the picker a token and to
+ * resolve picked items through the `@sharePoint.endpoint` the picker returns.
  */
 
-const GRAPH_SCOPES = ['Files.Read'];
 const PICKER_SCOPES = ['OneDrive.ReadOnly'];
+const OIDC_SCOPES = ['openid', 'profile', 'email'];
+
+/**
+ * Scopes used to silently obtain an ID token for our own API. Requesting only
+ * OIDC scopes (`openid profile email`) with `acquireTokenSilent` fails on
+ * consumer accounts with `AADSTS70000 invalid_grant`; pairing `openid` with the
+ * already-consented resource scope makes the refresh succeed and still returns
+ * an `id_token`.
+ */
+const ID_TOKEN_SCOPES = ['openid', 'profile', ...PICKER_SCOPES];
 
 let appPromise = null;
 
@@ -51,12 +59,17 @@ async function loadConfig() {
 export function getMsalApp() {
   if (!appPromise) {
     appPromise = (async () => {
-      if (!globalThis.msal?.PublicClientApplication) {
-        throw authError('MSAL_NOT_LOADED', 'msal-browser was not loaded');
+      // Dynamic import keeps browser-only MSAL out of Node (unit tests import
+      // this module transitively) until an app is actually needed.
+      let PublicClientApplication;
+      try {
+        ({ PublicClientApplication } = await import('@azure/msal-browser'));
+      } catch (error) {
+        throw authError('MSAL_NOT_LOADED', 'msal-browser could not be loaded');
       }
 
       const { clientId, authority } = await loadConfig();
-      const app = new globalThis.msal.PublicClientApplication({
+      const app = new PublicClientApplication({
         auth: {
           clientId,
           authority,
@@ -64,6 +77,10 @@ export function getMsalApp() {
         },
         cache: { cacheLocation: 'sessionStorage' },
       });
+
+      if (typeof app.initialize === 'function') {
+        await app.initialize();
+      }
 
       // A stale/failed redirect interaction must not block popup sign-in.
       try {
@@ -96,14 +113,14 @@ export async function getAccount() {
 }
 
 /**
- * Interactive sign-in requesting Graph read + openid/profile.
+ * Interactive sign-in requesting OIDC scopes only.
  *
  * @returns {Promise<import('msal').AccountInfo>}
  */
 export async function signIn() {
   const app = await getMsalApp();
   const response = await app.loginPopup({
-    scopes: ['openid', 'profile', ...GRAPH_SCOPES],
+    scopes: OIDC_SCOPES,
   });
   app.setActiveAccount(response.account);
   return response.account;
@@ -137,7 +154,7 @@ async function acquireScopes(scopes) {
 /**
  * Acquires a token for the OneDrive picker and item resolution.
  *
- * `OneDrive.ReadOnly` targets a different resource than the Graph token used
+ * `OneDrive.ReadOnly` targets a different resource than the OIDC scopes used
  * for sign-in, so personal (MSA) accounts may require an interactive consent
  * once. This MUST be called before opening the picker window, otherwise the
  * consent popup would be the second popup and get blocked.
@@ -159,4 +176,64 @@ export async function trySilentPickerToken() {
   const account = app.getActiveAccount() || (await getAccount());
   const response = await app.acquireTokenSilent({ scopes: PICKER_SCOPES, account });
   return response.accessToken;
+}
+
+/**
+ * Signs the current account out: clears the MSAL token cache via a logout
+ * popup (called from a click, so the popup has a gesture) and drops the active
+ * account. Resolution-cache clearing is coordinated by the caller so this
+ * module stays free of the cache dependency.
+ *
+ * @returns {Promise<void>}
+ */
+export async function signOut() {
+  const app = await getMsalApp();
+  const account = app.getActiveAccount() || app.getAllAccounts()[0] || null;
+  await app.logoutPopup({ account: account || undefined });
+  app.setActiveAccount(null);
+}
+
+/**
+ * Returns an ID token for the signed-in account to authenticate against our own
+ * API. Silent-only: API calls have no guaranteed user gesture, so a missing
+ * token surfaces as an error the caller can turn into a re-auth affordance.
+ *
+ * @returns {Promise<string>}
+ */
+export async function getIdToken() {
+  const app = await getMsalApp();
+  const account = app.getActiveAccount() || (await getAccount());
+  const response = await app.acquireTokenSilent({
+    scopes: ID_TOKEN_SCOPES,
+    account,
+  });
+  if (!response.idToken) {
+    throw authError(
+      'ID_TOKEN_MISSING',
+      'No id_token returned for the signed-in account'
+    );
+  }
+  return response.idToken;
+}
+
+/**
+ * `fetch` wrapper that attaches `Authorization: Bearer <id_token>`.
+ *
+ * Token acquisition is best-effort: this helper exists only to authenticate
+ * against our own API. If no ID token is available the request still goes out
+ * unauthenticated so the API layer (not the transport) decides how to react.
+ *
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<Response>}
+ */
+export async function fetchWithAuth(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  try {
+    const token = await getIdToken();
+    headers.set('Authorization', `Bearer ${token}`);
+  } catch (error) {
+    console.warn('[auth] id token unavailable', error);
+  }
+  return fetch(url, { ...options, headers });
 }

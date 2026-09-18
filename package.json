@@ -5,9 +5,10 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "start:env": "node --env-file-if-exists=.env server/index.js",
     "test": "node --test server/ public/",
-    "test:e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-scroll.spec.js && playwright test tests/e2e/routing.spec.js && playwright test tests/e2e/delete-milestone.spec.js",
-    "e2e": "playwright test tests/e2e/unlock.spec.js && playwright test tests/e2e/add-milestone.spec.js && playwright test tests/e2e/timeline-scroll.spec.js && playwright test tests/e2e/routing.spec.js && playwright test tests/e2e/delete-milestone.spec.js",
+    "test:e2e": "playwright test",
+    "e2e": "playwright test",
     "db:reset": "rm -f data/milestones.db data/milestones.db-shm data/milestones.db-wal"
   },
   "keywords": [],
@@ -23,8 +24,10 @@
   "packageManager": "pnpm@11.24.0",
   "type": "module",
   "dependencies": {
+    "@azure/msal-browser": "4.28.1",
     "better-sqlite3": "^13.0.3",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "jose": "6.2.12"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"

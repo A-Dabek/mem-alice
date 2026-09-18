@@ -2,12 +2,67 @@ import { h } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { resolveItem, getThumbnailUrl } from '../onedrive.js';
+import { resolveItemCached } from '../onedriveCache.js';
+import { fetchWithAuth, getAccount, getPickerToken, trySilentPickerToken } from '../auth.js';
 
 const html = htm.bind(h);
 
 const LOAD_ERROR = 'Nie można wczytać kamieni milowych. Spróbuj ponownie.';
-const BROKEN_ITEM = 'Nie można wczytać tego elementu';
+const LOADING_ITEM = 'Ładowanie podglądu...';
+const REAUTH_ITEM = 'Sesja wygasła. Zaloguj się ponownie.';
+const GONE_ITEM = 'Ten element nie jest już dostępny.';
+const RESOLVE_ERROR = 'Nie udało się wczytać podglądu.';
+
+/**
+ * Acquires a picker token. Lazy rows resolve silently only: the
+ * IntersectionObserver path has no user gesture, so an interactive popup would
+ * be blocked. Interactive acquisition happens exclusively from an explicit
+ * button click.
+ *
+ * @param {boolean} interactive
+ * @returns {Promise<string>}
+ */
+async function acquirePickerToken(interactive) {
+  try {
+    return interactive ? await getPickerToken() : await trySilentPickerToken();
+  } catch {
+    const error = new Error('re-auth required');
+    error.code = 'AUTH_REQUIRED';
+    throw error;
+  }
+}
+
+/**
+ * Resolves one milestone, using the cache and the silent-only token path.
+ *
+ * @param {object} milestone
+ * @param {boolean} interactive
+ * @returns {Promise<object>}
+ */
+async function resolveMilestone(milestone, interactive) {
+  const account = await getAccount();
+  const accountId = account?.homeAccountId || account?.username || '';
+  const token = await acquirePickerToken(interactive);
+  return resolveItemCached(
+    accountId,
+    milestone.drive_item_id,
+    milestone.drive_id,
+    milestone.drive_endpoint,
+    token
+  );
+}
+
+/**
+ * Maps a resolution error to a Timeline row state.
+ *
+ * @param {Error & { code?: string }} error
+ * @returns {'needs-auth' | 'gone' | 'error'}
+ */
+function statusForError(error) {
+  if (error?.code === 'AUTH_REQUIRED') return 'needs-auth';
+  if (error?.code === 'NOT_FOUND') return 'gone';
+  return 'error';
+}
 
 /**
  * Fetches the stored milestone list, oldest first.
@@ -17,7 +72,7 @@ const BROKEN_ITEM = 'Nie można wczytać tego elementu';
 async function fetchMilestones() {
   let response;
   try {
-    response = await fetch('/api/milestones');
+    response = await fetchWithAuth('/api/milestones');
   } catch {
     throw new Error(LOAD_ERROR);
   }
@@ -63,8 +118,8 @@ export function TimelineScreen({ onAddMilestone }) {
     };
   }, []);
 
-  function loadOne(id) {
-    if (startedRef.current.has(id)) return;
+  function loadOne(id, { interactive = false, force = false } = {}) {
+    if (!force && !interactive && startedRef.current.has(id)) return;
     startedRef.current.add(id);
 
     const milestone = (milestones || []).find((item) => item.id === id);
@@ -72,23 +127,23 @@ export function TimelineScreen({ onAddMilestone }) {
 
     setResolved((prev) => ({ ...prev, [id]: { status: 'loading' } }));
 
-    Promise.all([
-      resolveItem(milestone.drive_item_id, milestone.drive_id, milestone.drive_endpoint),
-      getThumbnailUrl(milestone.drive_item_id, milestone.drive_id, milestone.drive_endpoint),
-    ])
-      .then(([item, thumbUrl]) => {
+    resolveMilestone(milestone, interactive)
+      .then((item) => {
         setResolved((prev) => ({
           ...prev,
           [id]: {
             status: 'ready',
-            thumbUrl,
+            thumbUrl: item.thumbUrl,
             downloadUrl: item.downloadUrl,
             mime: item.mime || milestone.media_mime,
           },
         }));
       })
-      .catch(() => {
-        setResolved((prev) => ({ ...prev, [id]: { status: 'error' } }));
+      .catch((error) => {
+        setResolved((prev) => ({
+          ...prev,
+          [id]: { status: statusForError(error) },
+        }));
       });
   }
 
@@ -207,13 +262,37 @@ export function TimelineScreen({ onAddMilestone }) {
                               ${isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
                             </button>
                           `
-                        : e && e.status === 'error'
+                        : e && e.status === 'needs-auth'
                           ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
-                              <span data-testid="milestone-media-loading">${BROKEN_ITEM}</span>
+                              <span data-testid="milestone-media-loading">${REAUTH_ITEM}</span>
+                              <button
+                                type="button"
+                                class="milestone-load-button"
+                                data-testid="milestone-reauth"
+                                onClick=${() => loadOne(milestone.id, { interactive: true, force: true })}
+                              >
+                                Zaloguj ponownie
+                              </button>
                             </div>`
-                          : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
-                              <span data-testid="milestone-media-loading">Ładowanie podglądu...</span>
-                            </div>`}
+                          : e && e.status === 'gone'
+                            ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                                <span data-testid="milestone-media-loading">${GONE_ITEM}</span>
+                              </div>`
+                            : e && e.status === 'error'
+                              ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                                  <span data-testid="milestone-media-loading">${RESOLVE_ERROR}</span>
+                                  <button
+                                    type="button"
+                                    class="milestone-load-button"
+                                    data-testid="milestone-retry"
+                                    onClick=${() => loadOne(milestone.id, { force: true })}
+                                  >
+                                    Spróbuj ponownie
+                                  </button>
+                                </div>`
+                              : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                                  <span data-testid="milestone-media-loading">${LOADING_ITEM}</span>
+                                </div>`}
                     <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
                     <p class="milestone-subtitle" data-testid="milestone-subtitle">${milestone.subtitle}</p>
                     <button type="button" class="delete-button" data-testid="delete-button" data-id=${milestone.id} onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}>Usuń</button>
@@ -234,7 +313,7 @@ export function TimelineScreen({ onAddMilestone }) {
                 setDeletingId(pendingDeleteId);
                 setDeleteError('');
                 try {
-                  const res = await fetch('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
+                  const res = await fetchWithAuth('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
                   if (!res.ok) throw new Error('delete failed');
                   startedRef.current.delete(pendingDeleteId);
                   setMilestones(prev => prev.filter(m => m.id !== pendingDeleteId));

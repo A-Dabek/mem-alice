@@ -3,11 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-// Each `playwright test` invocation (see package.json's `test:e2e`, which
-// runs one spec file per invocation) gets its own throwaway sqlite file so
-// specs never see leftover data from a previous run - the server never
-// persists plaintext, but we still want a clean slate of ciphertext rows
-// per spec file.
+// Each `playwright test` invocation gets its own throwaway sqlite file so
+// specs never see leftover data from a previous run.
 const dbPath = path.join(
   fs.mkdtempSync(path.join(os.tmpdir(), 'milestones-e2e-')),
   'milestones.db'
@@ -33,6 +30,8 @@ export default defineConfig({
     env: {
       PORT: String(PORT),
       DB_PATH: dbPath,
+      MS_CLIENT_ID: 'e2e-client-id',
+      AUTH_DISABLED: '1',
     },
     url: `${BASE_URL}/api/config`,
     reuseExistingServer: false,
