@@ -37,6 +37,8 @@ function makePayload(label) {
     drive_id: `drive-${label}`,
     drive_endpoint: 'https://api.onedrive.com/v1.0',
     media_mime: 'image/jpeg',
+    media_width: 1200,
+    media_height: 800,
     item_name: `${label}.jpg`,
   };
 }
@@ -82,6 +84,8 @@ test('POST /api/milestones then GET /api/milestones round-trips a Graph referenc
     assert.equal(rows[0].drive_id, payload.drive_id);
     assert.equal(rows[0].drive_endpoint, payload.drive_endpoint);
     assert.equal(rows[0].media_mime, payload.media_mime);
+    assert.equal(rows[0].media_width, payload.media_width);
+    assert.equal(rows[0].media_height, payload.media_height);
     assert.equal(rows[0].item_name, payload.item_name);
     assert.equal(rows[0].created_at, undefined);
   } finally {
@@ -108,6 +112,8 @@ test('POST defaults subtitle to empty string and optional refs to null', async (
     assert.equal(rows[0].subtitle, '');
     assert.equal(rows[0].drive_id, null);
     assert.equal(rows[0].drive_endpoint, null);
+    assert.equal(rows[0].media_width, null);
+    assert.equal(rows[0].media_height, null);
     assert.equal(rows[0].item_name, null);
   } finally {
     await close();
@@ -274,6 +280,40 @@ test('POST /api/milestones enforces length caps', async () => {
       (await post({ ...makePayload('id'), drive_item_id: 'x'.repeat(513) })).status,
       400
     );
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones validates media dimensions', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const post = (fields) =>
+      fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...makePayload('dim'), ...fields }),
+      });
+
+    assert.equal((await post({ media_width: 900, media_height: 1200 })).status, 201);
+    assert.equal((await post({ media_width: null, media_height: null })).status, 201);
+
+    for (const fields of [
+      { media_width: 0 },
+      { media_width: -10 },
+      { media_width: 1.5 },
+      { media_width: '900' },
+      { media_height: 0 },
+      { media_height: 'x' },
+      { media_width: 100001 },
+    ]) {
+      assert.equal(
+        (await post(fields)).status,
+        400,
+        `expected 400 for ${JSON.stringify(fields)}`
+      );
+    }
   } finally {
     await close();
   }

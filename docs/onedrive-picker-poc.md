@@ -35,18 +35,22 @@ CREATE TABLE IF NOT EXISTS milestones (
   drive_id TEXT,
   drive_endpoint TEXT,
   media_mime TEXT NOT NULL,
+  media_width INTEGER,
+  media_height INTEGER,
   item_name TEXT
 );
 ```
 
 No dates, no `config` table, no migrations (deferred debt #8). The app is
-pre-prod, so schema changes may require recreating the dev DB.
+pre-prod, so schema changes may require recreating the dev DB. `server/db.js`
+does backfill the additive `media_width`/`media_height` columns on an existing
+dev DB so old rows survive.
 
 ### API — `server/index.js`, `server/routes/milestones.js`, `server/auth.js`
 
 - `GET /api/config` → `{ clientId: process.env.MS_CLIENT_ID ?? null, authority: process.env.MS_AUTHORITY || 'https://login.microsoftonline.com/consumers' }` (public)
 - `GET /api/milestones` → list, oldest first (`ORDER BY id ASC`)
-- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, drive_endpoint?, media_mime, item_name? }`
+- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, drive_endpoint?, media_mime, media_width?, media_height?, item_name? }`
 - `DELETE /api/milestones/:id`
 - `DELETE /api/milestones` → bulk truncate (test/e2e isolation helper)
 
@@ -62,9 +66,10 @@ All `/api/milestones` routes go through `server/auth.js`:
 - `AUTH_DISABLED=1` bypasses auth for local dev, but is ignored (with a WARN)
   when `NODE_ENV=production`.
 - `POST` also validates the MIME allowlist (`image/jpeg,png,gif,webp`,
-  `video/mp4`), field length caps, and re-checks the `drive_endpoint` host
-  (`*.onedrive.com`, `*.sharepoint.com`, `*.live.com`, `*.svc.ms`,
-  `*.microsoftpersonalcontent.com`). The server never fetches the endpoint.
+  `video/mp4`), field length caps, positive-integer `media_width`/`media_height`,
+  and re-checks the `drive_endpoint` host (`*.onedrive.com`, `*.sharepoint.com`,
+  `*.live.com`, `*.svc.ms`, `*.microsoftpersonalcontent.com`). The server never
+  fetches the endpoint.
 
 `express.json()` uses the default limit (no media upload). Static assets and API
 responses keep no-store/no-cache headers. The server never calls Graph and
@@ -122,8 +127,8 @@ Easiest setup: copy `.env.example` → `.env` (gitignored) and fill it in.
 - Scopes: `openid profile email` for sign-in; `OneDrive.ReadOnly` for the picker.
   `getIdToken()` pairs `openid` with `OneDrive.ReadOnly` because OIDC-only
   silent requests fail on MSA with `AADSTS70000 invalid_grant`.
-- `getPickerToken()` (interactive fallback) is called **before** the picker window
-  opens, so the consent popup has a user gesture.
+- `getPickerToken()` (interactive fallback) is called **before** the picker
+  iframe opens, so the consent popup has a user gesture.
 - `trySilentPickerToken()` is silent-only and is the **only** token call used from
   inside the picker message flow.
 - `fetchWithAuth()` attaches `Authorization: Bearer <id_token>` best-effort.
@@ -136,10 +141,21 @@ Easiest setup: copy `.env.example` → `.env` (gitignored) and fill it in.
 Consumer config: base URL `https://onedrive.live.com/picker`, authority
 `consumers`, scope `OneDrive.ReadOnly`.
 
+Hosting: a self-created full-screen **inline iframe overlay** (no popup). The
+overlay is `position: fixed; inset: 0; 100dvh` with `z-index` above the delete
+modal; it contains a header + Cancel button and
+`<iframe name="OneDrivePicker">`. Opening locks body scroll, marks `#app`
+`inert` (focus trap), and focuses Cancel; Escape or Cancel rejects `CANCELLED`.
+The form is created in the host document and mounted into the iframe's
+about:blank document (required so submitting navigates the iframe), then
+submitted with a hidden `access_token`. `finish()` removes the overlay, the
+message listener and the scroll lock instead of closing a window. Any setup
+failure rejects `PICKER_LOAD_FAILED`. The picker options set
+`accessibility.enableFocusTrap: true`.
+
 Handshake: `initialize` → grab `event.ports[0]` → `activate`; on the port handle
 `authenticate` → `result/token`, `pick` → resolve `{ id, driveId, endpoint }`,
-`close` → reject `CANCELLED`. The form is POSTed to `${baseUrl}?filePicker=…`
-with a hidden `access_token`.
+`close` → reject `CANCELLED`.
 
 **Critical protocol detail:** command responses must use the **top-level** id
 (`message.id`), not `message.data.id`. The picker reports `acknowledgeTimeout`
@@ -154,9 +170,10 @@ otherwise. Ignore `command.resource` for consumer.
   (other non-2xx), each carrying `.status` where HTTP-backed.
 - `resolveItem(id, driveId, endpoint, token)` — one request
   `GET …/items/{id}?$expand=thumbnails($select=large,medium,small)`, returns
-  `{ id, name, mime, downloadUrl, thumbUrl, driveId }`. Falls back to the item
-  GET + `/thumbnails` two-request path if the combined call errors or lacks
-  `@content.downloadUrl`.
+  `{ id, name, mime, downloadUrl, thumbUrl, driveId, width, height }` where
+  `width`/`height` come from the item's `image || photo || video` facet (null
+  when absent). Falls back to the item GET + `/thumbnails` two-request path if
+  the combined call errors or lacks `@content.downloadUrl`.
 - `getThumbnailUrl` delegates to `resolveItem` (best-effort, null on failure).
 - Reads `@content.downloadUrl` (OneDrive API), not `@microsoft.graph.downloadUrl`.
   Do NOT call `graph.microsoft.com` for consumer items.
@@ -172,19 +189,31 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
 - `app.js`: signed-out → `SignInScreen`; signed-in → app shell with the account
   name + "Wyloguj", plus `#add` route or Timeline.
 - `AddMilestoneScreen.js`: "Wybierz z OneDrive" → `getPickerToken()` →
-  `pickFile(token)` → `resolveItem(…, token)` → preview
-  (`<img>`/`<video src=downloadUrl controls>`), then `POST /api/milestones` via
-  `fetchWithAuth` with the reference. No file input, no size limit.
+  `pickFile(token)` → `resolveItem(…, token)` → preview, then
+  `POST /api/milestones` via `fetchWithAuth` with the reference plus the resolved
+  `media_width`/`media_height`. No file input, no size limit. `.media-preview` is
+  always rendered with an inline `aspect-ratio` (`width/height`, else video
+  `16/9`, else `4/3`) and hosts the "Wybierz z OneDrive" button as its idle
+  content (the button reserves the media slot); it shows "Wybieranie..." while
+  picking and the `<img>`/`<video src=downloadUrl controls>` once chosen
+  (`PICK_ERROR` under the slot on failure). A "Anuluj" button (`clear-media`)
+  drops the chosen item so it can be re-picked.
 - `TimelineScreen.js`: plaintext title/subtitle; rows resolve lazily
   (IntersectionObserver, **silent-only**) through the cache. States:
   `loading | ready | needs-auth | gone | error`, with gesture-safe
   "Zaloguj ponownie" (re-auth) and "Spróbuj ponownie" (retry) buttons. Click
-  expands full media; delete modal retained.
+  expands full media; delete modal retained. Placeholders, thumbnails and
+  expanded media all reserve the same inline `aspect-ratio` (resolved intrinsic
+  size, else stored `media_width`/`media_height`, else MIME fallback; thumbnails
+  `object-fit: cover`, expanded media `contain`). Expanded photos keep the
+  thumbnail as `src` and swap to the preloaded full-resolution URL only once it
+  is decoded (videos use `poster`), so expanding never flashes a blank box.
 
 Test ids kept: `title-input`, `subtitle-input`, `save-button`, `add-error`,
-`signin-button`, `picker-button`, `media-preview`, `milestone-item`,
-`milestone-photo`, `milestone-video`, `milestone-thumb`, `delete-*`, plus
-`app-account`, `signout-button`, `milestone-reauth`, `milestone-retry`.
+`signin-button`, `picker-button`, `picker-cancel`, `media-preview`,
+`milestone-item`, `milestone-photo`, `milestone-video`, `milestone-thumb`,
+`delete-*`, plus `app-account`, `signout-button`, `milestone-reauth`,
+`milestone-retry`.
 
 ## Picked item resolution: why not Graph
 
@@ -214,8 +243,8 @@ flow and persists `@sharePoint.endpoint` as `milestones.drive_endpoint`.
 ## Verify / commands
 
 ```bash
-pnpm test                         # 46 unit tests
-pnpm test:e2e                     # 11 E2E tests (stubbed auth/picker/OneDrive)
+pnpm test                         # 48 unit tests
+pnpm test:e2e                     # 14 E2E tests (stubbed auth/picker/OneDrive)
 MS_CLIENT_ID=<app-id> ALLOWED_EMAILS=<email> pnpm start
 ```
 

@@ -1,10 +1,17 @@
 /**
  * OneDrive File Picker (v8) integration.
  *
- * Follows Microsoft's `javascript-basic-consumer` sample: open a popup, POST
- * a form carrying the picker configuration (querystring) plus a hidden
- * `access_token`, then drive the postMessage/MessagePort handshake
+ * Follows Microsoft's `javascript-basic-consumer` sample, but hosts the picker
+ * in an inline full-screen iframe overlay instead of a popup: create the
+ * overlay + `<iframe name="OneDrivePicker">`, POST a form carrying the picker
+ * configuration (querystring) plus a hidden `access_token` into the iframe's
+ * about:blank document, then drive the postMessage/MessagePort handshake
  * (initialize -> activate, authenticate -> token, pick -> items, close).
+ *
+ * The inline overlay avoids popup blockers and works in in-app browsers. The
+ * critical protocol conventions (top-level `message.id`, `event.ports[0]`,
+ * `event.source === frame.contentWindow`, consumer pivots, ignoring
+ * `command.resource`) are unchanged.
  *
  * Consumer (personal Microsoft accounts):
  *   authority: https://login.microsoftonline.com/consumers
@@ -15,8 +22,7 @@
 import { trySilentPickerToken } from './auth.js';
 
 const PICKER_BASE_URL = 'https://onedrive.live.com/picker';
-const PICKER_WIDTH = 1080;
-const PICKER_HEIGHT = 680;
+const PICKER_FRAME_NAME = 'OneDrivePicker';
 
 function uuid() {
   if (globalThis.crypto?.randomUUID) {
@@ -30,10 +36,97 @@ function uuid() {
 }
 
 /**
- * Opens the picker and resolves with the first picked item's Graph identity.
+ * @param {string} code
+ * @param {unknown} [cause]
+ * @returns {Error & { cause?: unknown }}
+ */
+function pickerError(code, cause) {
+  const error = new Error(code);
+  if (cause !== undefined) error.cause = cause;
+  return error;
+}
+
+/**
+ * Builds and mounts the full-screen picker overlay. The overlay is appended to
+ * `<body>` (sibling of `#app`), which is marked `inert` while it is open so
+ * focus cannot escape back into the app. Escape and the Cancel button invoke
+ * `onCancel`.
+ *
+ * @param {() => void} onCancel
+ * @returns {{ frame: HTMLIFrameElement, destroy: () => void }}
+ */
+function createOverlay(onCancel) {
+  const previouslyFocused = document.activeElement;
+  const previousOverflow = document.body.style.overflow;
+  const app = document.getElementById('app');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'picker-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Wybierz plik z OneDrive');
+
+  const header = document.createElement('div');
+  header.className = 'picker-overlay-header';
+
+  const title = document.createElement('p');
+  title.className = 'picker-overlay-title';
+  title.textContent = 'Wybierz plik z OneDrive';
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'picker-overlay-cancel';
+  cancel.setAttribute('data-testid', 'picker-cancel');
+  cancel.textContent = 'Anuluj';
+  cancel.addEventListener('click', () => onCancel());
+
+  header.append(title, cancel);
+
+  const frame = document.createElement('iframe');
+  frame.className = 'picker-overlay-frame';
+  frame.name = PICKER_FRAME_NAME;
+  frame.title = 'OneDrive';
+  frame.setAttribute('allow', 'clipboard-write');
+
+  overlay.append(header, frame);
+
+  // Focus trap: Escape cancels; the only focusable elements are the Cancel
+  // button and the iframe, and `#app` is inert, so Tab cannot escape.
+  function onKeydown(event) {
+    if (event.key === 'Escape' || event.key === 'Esc') {
+      event.preventDefault();
+      onCancel();
+    }
+  }
+
+  document.body.style.overflow = 'hidden';
+  if (app) app.inert = true;
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onKeydown);
+  cancel.focus();
+
+  let destroyed = false;
+  function destroy() {
+    if (destroyed) return;
+    destroyed = true;
+    document.removeEventListener('keydown', onKeydown);
+    overlay.remove();
+    document.body.style.overflow = previousOverflow;
+    if (app) app.inert = false;
+    if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+      previouslyFocused.focus();
+    }
+  }
+
+  return { frame, destroy };
+}
+
+/**
+ * Opens the picker in an inline iframe overlay and resolves with the first
+ * picked item's identity.
  *
  * @param {string} token - a OneDrive picker token, acquired BEFORE opening the
- *   window so any interactive consent popup is the first popup (not blocked).
+ *   picker so any interactive consent popup is the first popup (not blocked).
  * @returns {Promise<{ id: string, driveId: string | null, endpoint: string | null }>}
  */
 export function pickFile(token) {
@@ -66,27 +159,41 @@ export function pickFile(token) {
       selection: {
         mode: 'single',
       },
+      // The picker is the only content of a modal overlay here, so keep its
+      // tab-stops looping inside the component.
+      accessibility: {
+        enableFocusTrap: true,
+      },
     };
-
-    const win = window.open(
-      '',
-      'Picker',
-      `width=${PICKER_WIDTH},height=${PICKER_HEIGHT}`
-    );
-
-    if (!win) {
-      reject(new Error('POPUP_BLOCKED'));
-      return;
-    }
 
     let port = null;
     let settled = false;
+    let overlay = null;
 
     function finish(handler, value) {
       if (settled) return;
       settled = true;
       window.removeEventListener('message', onMessage);
+      if (overlay) overlay.destroy();
       handler(value);
+    }
+
+    function cancel() {
+      finish(reject, pickerError('CANCELLED'));
+    }
+
+    try {
+      overlay = createOverlay(cancel);
+    } catch (error) {
+      finish(reject, pickerError('PICKER_LOAD_FAILED', error));
+      return;
+    }
+
+    const win = overlay.frame.contentWindow;
+
+    if (!win) {
+      finish(reject, pickerError('PICKER_LOAD_FAILED'));
+      return;
     }
 
     function onMessage(event) {
@@ -142,13 +249,10 @@ export function pickFile(token) {
             id: message.id,
             data: { result: 'success' },
           });
-          try {
-            if (!win.closed) win.close();
-          } catch {}
 
           const item = Array.isArray(command.items) ? command.items[0] : null;
           if (!item) {
-            finish(reject, new Error('NO_ITEM'));
+            finish(reject, pickerError('NO_ITEM'));
             return;
           }
           finish(resolve, {
@@ -160,10 +264,7 @@ export function pickFile(token) {
         }
 
         case 'close': {
-          try {
-            if (!win.closed) win.close();
-          } catch {}
-          finish(reject, new Error('CANCELLED'));
+          cancel();
           break;
         }
 
@@ -189,23 +290,24 @@ export function pickFile(token) {
         });
         const url = `${PICKER_BASE_URL}?${queryString}`;
 
-        const form = win.document.createElement('form');
+        // The form is created in the host document and mounted into the
+        // iframe's about:blank document, so submitting it navigates the iframe
+        // (not the host page).
+        const form = document.createElement('form');
         form.setAttribute('action', url);
         form.setAttribute('method', 'POST');
 
-        const input = win.document.createElement('input');
+        const input = document.createElement('input');
         input.setAttribute('type', 'hidden');
         input.setAttribute('name', 'access_token');
         input.setAttribute('value', token);
         form.appendChild(input);
 
-        win.document.body.append(form);
+        const target = win.document.body || win.document.documentElement;
+        target.appendChild(form);
         form.submit();
       } catch (error) {
-        try {
-          if (!win.closed) win.close();
-        } catch {}
-        finish(reject, error);
+        finish(reject, pickerError('PICKER_LOAD_FAILED', error));
       }
     })();
   });

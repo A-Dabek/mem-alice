@@ -29,6 +29,8 @@ export async function seedMilestones(request, items) {
         drive_id: item.driveId,
         drive_endpoint: TEST_ENDPOINT,
         media_mime: item.mime,
+        media_width: item.width ?? null,
+        media_height: item.height ?? null,
         item_name: item.name,
       },
     });

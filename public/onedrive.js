@@ -180,14 +180,32 @@ function firstThumbUrl(collection) {
 }
 
 /**
+ * Reads the item's intrinsic pixel size from its media facet. OneDrive exposes
+ * `{ width, height }` on `image` (photos), `photo` (camera metadata) and `video`
+ * (video dimensions); `image` wins when several are present. Missing/non-finite
+ * values degrade to null so the UI can fall back to a MIME-based ratio.
+ *
+ * @param {object} item
+ * @returns {{ width: number | null, height: number | null }}
+ */
+function intrinsicSize(item) {
+  const facet = item.image || item.photo || item.video || null;
+  return {
+    width: Number.isFinite(facet?.width) ? facet.width : null,
+    height: Number.isFinite(facet?.height) ? facet.height : null,
+  };
+}
+
+/**
  * Shapes an item payload into the resolution result the UI consumes.
  *
  * @param {object} item
  * @param {string | null | undefined} driveId
  * @param {string | null} thumbUrl
- * @returns {{ id: string, name: string, mime: string, downloadUrl: string | null, thumbUrl: string | null, driveId: string | null }}
+ * @returns {{ id: string, name: string, mime: string, downloadUrl: string | null, thumbUrl: string | null, driveId: string | null, width: number | null, height: number | null }}
  */
 function toResolution(item, driveId, thumbUrl) {
+  const { width, height } = intrinsicSize(item);
   return {
     id: item.id,
     name: item.name || '',
@@ -195,6 +213,8 @@ function toResolution(item, driveId, thumbUrl) {
     downloadUrl: item['@content.downloadUrl'] || null,
     thumbUrl: thumbUrl || null,
     driveId: item.parentReference?.driveId || driveId || null,
+    width,
+    height,
   };
 }
 
@@ -228,7 +248,7 @@ async function fetchThumbnail(id, driveId, endpoint, token) {
  * @param {string | null} [driveId]
  * @param {string | null} [endpoint]
  * @param {string} [token] - reuse the picker token acquired for the pick flow.
- * @returns {Promise<{ id: string, name: string, mime: string, downloadUrl: string | null, thumbUrl: string | null, driveId: string | null }>}
+ * @returns {Promise<{ id: string, name: string, mime: string, downloadUrl: string | null, thumbUrl: string | null, driveId: string | null, width: number | null, height: number | null }>}
  */
 export async function resolveItem(id, driveId, endpoint, token) {
   const base = itemPath(id, driveId, endpoint);

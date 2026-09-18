@@ -167,6 +167,94 @@ Companion docs: `docs/onedrive-picker-poc.md` (handoff/protocol),
 
 ---
 
+## D — CLS: reserved media boxes + inline picker
+
+Goal: stop layout shift when previews/thumbnails/expanded media load, and drop
+the picker popup (blocked in in-app browsers).
+
+### D1 — Intrinsic dimensions in resolution — `DONE`
+- `public/onedrive.js`: `toResolution` carries `width`/`height` from the item's
+  `image || photo || video` facet (null when absent); both resolve paths reuse
+  it.
+- Verify: `public/onedrive.test.js` deepEquals + new
+  facet-extraction/precedence test.
+- Status: `pnpm test` 47/47 green.
+
+### D2 — Add screen reserves the preview slot — `DONE`
+- `AddMilestoneScreen.js`: always render `.media-preview` with an inline
+  `aspect-ratio` (idle/picking/media/error); ratio = `width/height`, else video
+  `16/9`, else `4/3`; media `object-fit: contain`. Popup-blocked handling
+  removed (`PICK_ERROR` kept).
+- Status: `pnpm test:e2e` add-milestone specs green.
+
+### D3 — Timeline reserves media boxes — `DONE`
+- `TimelineScreen.js`: ready state carries `width`/`height`; `aspectFor()` drives
+  an inline `aspect-ratio` on placeholders, thumb, photo and video
+  (`object-fit: cover` for thumbs, `contain` for expanded); dropped the hard
+  `1/1` placeholder ratio.
+- Status: `pnpm test:e2e` timeline specs green; spec now scrolls the last row
+  into view before asserting all thumbnails resolve (reserved boxes no longer
+  collapse and eagerly reveal below-the-fold rows).
+
+### D4 — Inline picker iframe — `DONE`
+- `public/picker.js`: replaced `window.open` with a self-created full-screen
+  overlay (`fixed inset:0`, `100dvh`, above the delete modal) holding a header +
+  Cancel + `<iframe name="OneDrivePicker">`; body scroll lock, `#app` inert,
+  Escape/Cancel → `CANCELLED`; POSTs the config form into the iframe about:blank
+  document; `accessibility.enableFocusTrap: true`; setup failure →
+  `PICKER_LOAD_FAILED`; `finish()` tears down overlay/listener/lock.
+- Handshake unchanged (top-level `message.id`, `event.ports[0]`,
+  `event.source === frame.contentWindow`, consumer pivots).
+- Status: `pnpm test:e2e` 11/11 green (helper locates the app-created iframe).
+
+### D5 — E2E helper + docs — `DONE`
+- `tests/e2e/helpers/picker.js`: `installPicker` patches
+  `HTMLFormElement.prototype.submit` (records the action URL, skips
+  navigation); `driveHandshake` uses the app-created iframe's `contentWindow` as
+  `event.source`; `pickFile`/`closePicker` signatures unchanged.
+- Docs/AGENTS refreshed for the iframe hosting and reserved media boxes.
+- Status: `pnpm test` 47/47, `pnpm test:e2e` 11/11. Awaiting manual mobile
+  golden path + DevTools CLS check.
+
+---
+
+## E — Persist media dimensions + Add-screen polish
+
+Feedback follow-up to D: preview sizing was off (black letterbox / wrong ratio
+for portrait photos) and Timeline thumbnails were reserved at 16:9 / 4:3 then
+snapped to the real 3:4.
+
+### E1 — Store intrinsic size in the DB — `DONE`
+- `server/db.js`: `media_width`/`media_height` INTEGER columns (+ additive
+  backfill for existing dev DBs).
+- `server/routes/milestones.js`: accept/validate positive-integer dimensions,
+  include in `GET`/`INSERT`.
+- `AddMilestoneScreen` POSTs the resolved dimensions; `TimelineScreen` reserves
+  the ratio from resolved dimensions, else the stored
+  `media_width`/`media_height`, else the MIME fallback.
+- Verify: `server/server.test.js` round-trip + dimension validation.
+- Status: `pnpm test` 48/48 green.
+
+### E2 — Add screen polish — `DONE`
+- `picker-button` gets padding; media preview uses a neutral background instead
+  of black so `object-fit: contain` letterboxing is not a black screen.
+- Added a "Anuluj" button (`clear-media`) under the chosen media that drops the
+  item so it can be re-picked.
+- Verify: `tests/e2e/add-milestone.spec.js` clear-media + portrait-ratio tests.
+- Status: `pnpm test:e2e` 13/13 green.
+
+### E3 — Reserved-slot button + seamless media swap — `DONE`
+- `AddMilestoneScreen`: the "Wybierz z OneDrive" button is now the idle content
+  of the reserved `.media-preview` slot, so it reserves the image space and
+  disappears while picking; removed the "Nie wybrano pliku." placeholder.
+- `TimelineScreen`: expanded photos keep the thumbnail as `src` until the full
+  download URL is preloaded, then swap in place (no blank flash); videos use
+  `poster`.
+- Verify: updated clear-media spec; new `timeline-scroll.spec.js` swap test.
+- Status: `pnpm test:e2e` 14/14 green.
+
+---
+
 ## Deferred (unchanged)
 - DB migrations (#8)
 - Mobile/redirect sign-in (#9)
@@ -207,3 +295,21 @@ Companion docs: `docs/onedrive-picker-poc.md` (handoff/protocol),
   logger comment). Awaiting review.
 - 2026-09-18 — Added `.env.example` + `.gitignore` entry; `prod.sh` sources
   `.env`; `pnpm start:env` loads it.
+- 2026-09-18 — D1 DONE: `resolveItem` carries intrinsic `width`/`height` from the
+  media facet; `pnpm test` 47/47.
+- 2026-09-18 — D2 DONE: Add screen always renders `.media-preview` with an inline
+  aspect ratio; popup-blocked path removed.
+- 2026-09-18 — D3 DONE: Timeline reserves media boxes via `aspectFor()`; spec
+  scrolls the last row into view.
+- 2026-09-18 — D4 DONE: picker moved from popup to inline iframe overlay;
+  `PICKER_LOAD_FAILED` replaces `POPUP_BLOCKED`.
+- 2026-09-18 — D5 DONE: E2E picker helper drives the app-created iframe; docs +
+  AGENTS updated. `pnpm test` 47/47, `pnpm test:e2e` 11/11. Awaiting manual
+  mobile golden path + DevTools CLS check.
+- 2026-09-18 — E1 DONE: `media_width`/`media_height` persisted (schema, API
+  validation, POST from Add, Timeline uses stored dims); `pnpm test` 48/48.
+- 2026-09-18 — E2 DONE: picker-button padding, neutral preview background,
+  "Anuluj" (`clear-media`) to drop the chosen media; `pnpm test:e2e` 13/13.
+- 2026-09-18 — E3 DONE: "Wybierz z OneDrive" is the reserved-slot idle content
+  (no "Nie wybrano pliku."); expanded photos keep the thumbnail until the full
+  image is preloaded, videos use `poster`; `pnpm test:e2e` 14/14.

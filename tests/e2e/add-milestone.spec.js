@@ -67,6 +67,59 @@ test('adding a video milestone previews and expands to a video', async ({ page }
   await expect(video).toHaveAttribute('controls', '');
 });
 
+test('clearing the chosen media lets the user pick again', async ({ page }) => {
+  await setupApp(page, { items: [IMAGE] });
+  await page.goto('/');
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('picker-button').click();
+  await pickFile(page, {
+    id: IMAGE.id,
+    driveId: IMAGE.driveId,
+    '@sharePoint.endpoint': TEST_ENDPOINT,
+  });
+
+  await expect(page.getByTestId('preview-image')).toBeVisible();
+  await page.getByTestId('clear-media').click();
+
+  await expect(page.getByTestId('preview-image')).toHaveCount(0);
+  await expect(page.getByTestId('clear-media')).toHaveCount(0);
+  await expect(page.getByTestId('picker-button')).toBeVisible();
+  await expect(page.getByTestId('picker-button')).toBeEnabled();
+});
+
+test('a portrait photo reserves its intrinsic aspect ratio', async ({ page }) => {
+  const PORTRAIT = makeItem({
+    id: 'portrait-1',
+    mime: 'image/png',
+    name: 'portrait.png',
+    width: 900,
+    height: 1200,
+  });
+
+  await setupApp(page, { items: [PORTRAIT] });
+  await page.goto('/');
+  await page.getByTestId('add-button').click();
+  await page.getByTestId('picker-button').click();
+  await pickFile(page, {
+    id: PORTRAIT.id,
+    driveId: PORTRAIT.driveId,
+    '@sharePoint.endpoint': TEST_ENDPOINT,
+  });
+
+  await expect(page.getByTestId('preview-image')).toBeVisible();
+  expect(await page.getByTestId('media-preview').getAttribute('style')).toContain(
+    '900 / 1200'
+  );
+
+  await page.getByTestId('title-input').fill('Portrait milestone');
+  await page.getByTestId('save-button').click();
+
+  await expect(page.getByTestId('milestone-thumb')).toHaveAttribute(
+    'style',
+    /900 \/ 1200/
+  );
+});
+
 test('cancelling the picker leaves the Add screen intact', async ({ page }) => {
   await setupApp(page, { items: [IMAGE] });
   await page.goto('/');

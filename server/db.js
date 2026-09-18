@@ -34,9 +34,22 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       drive_id TEXT,
       drive_endpoint TEXT,
       media_mime TEXT NOT NULL,
+      media_width INTEGER,
+      media_height INTEGER,
       item_name TEXT
     );
   `);
+
+  // Additive column backfill for pre-dimension dev DBs. Keeps existing rows
+  // instead of forcing a DB recreate (still no general migration framework).
+  const columns = new Set(
+    db.prepare('PRAGMA table_info(milestones)').all().map((column) => column.name)
+  );
+  for (const column of ['media_width', 'media_height']) {
+    if (!columns.has(column)) {
+      db.exec(`ALTER TABLE milestones ADD COLUMN ${column} INTEGER`);
+    }
+  }
 
   return db;
 }

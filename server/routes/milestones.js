@@ -4,7 +4,7 @@ import { logger } from '../logger.js';
 const REQUIRED_FIELDS = ['title', 'drive_item_id', 'media_mime'];
 
 const LIST_COLUMNS =
-  'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, item_name';
+  'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name';
 
 const ALLOWED_MIME = new Set([
   'image/jpeg',
@@ -22,6 +22,8 @@ const MAX_LENGTHS = {
   item_name: 512,
   drive_endpoint: 2048,
 };
+
+const MAX_DIMENSION = 100000;
 
 const ALLOWED_ENDPOINT_HOSTS = [
   'onedrive.com',
@@ -81,6 +83,14 @@ function validateMilestonePayload(body) {
     return `Unsupported media type "${body.media_mime}"`;
   }
 
+  for (const field of ['media_width', 'media_height']) {
+    const value = body[field];
+    if (value === undefined || value === null) continue;
+    if (!Number.isInteger(value) || value <= 0 || value > MAX_DIMENSION) {
+      return `Field "${field}" must be a positive integer`;
+    }
+  }
+
   for (const [field, max] of Object.entries(MAX_LENGTHS)) {
     const value = body[field];
     if (typeof value === 'string' && value.length > max) {
@@ -113,8 +123,8 @@ export function createMilestonesRouter(db) {
     `SELECT ${LIST_COLUMNS} FROM milestones ORDER BY id ASC`
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, item_name)
-     VALUES (@title, @subtitle, @drive_item_id, @drive_id, @drive_endpoint, @media_mime, @item_name)`
+    `INSERT INTO milestones (title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name)
+     VALUES (@title, @subtitle, @drive_item_id, @drive_id, @drive_endpoint, @media_mime, @media_width, @media_height, @item_name)`
   );
   const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
 
@@ -138,6 +148,8 @@ export function createMilestonesRouter(db) {
       drive_id = null,
       drive_endpoint = null,
       media_mime,
+      media_width = null,
+      media_height = null,
       item_name = null,
     } = req.body;
 
@@ -148,6 +160,8 @@ export function createMilestonesRouter(db) {
       drive_id,
       drive_endpoint,
       media_mime,
+      media_width,
+      media_height,
       item_name,
     });
 

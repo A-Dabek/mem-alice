@@ -156,7 +156,7 @@ async function acquireScopes(scopes) {
  *
  * `OneDrive.ReadOnly` targets a different resource than the OIDC scopes used
  * for sign-in, so personal (MSA) accounts may require an interactive consent
- * once. This MUST be called before opening the picker window, otherwise the
+ * once. This MUST be called before opening the picker, otherwise the
  * consent popup would be the second popup and get blocked.
  *
  * @returns {Promise<string>}

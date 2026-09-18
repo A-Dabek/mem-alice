@@ -35,7 +35,9 @@ test('renders seeded milestones as a vertical wall, oldest first', async ({ page
     ITEMS.map((i) => i.subtitle)
   );
 
-  // Lazily-resolved thumbnails, no full media until clicked.
+  // Lazily-resolved thumbnails, no full media until clicked. The media boxes
+  // are reserved, so rows below the fold only resolve once scrolled into view.
+  await page.getByTestId('milestone-item').last().scrollIntoViewIfNeeded();
   await expect(page.getByTestId('milestone-thumb')).toHaveCount(ITEMS.length);
   await expect(page.getByTestId('milestone-photo')).toHaveCount(0);
   await expect(page.getByTestId('milestone-video')).toHaveCount(0);
@@ -51,4 +53,34 @@ test('renders seeded milestones as a vertical wall, oldest first', async ({ page
   await expect(page.getByTestId('milestone-video')).toHaveCount(1);
 
   await expect(page.getByTestId('milestone-date')).toHaveCount(0);
+});
+
+test('expanding keeps the thumbnail visible until the full photo loads', async ({
+  page,
+  request,
+}) => {
+  await clearMilestones(request);
+  const item = makeItem({ id: 'swap-1', title: 'Swap', mime: 'image/png' });
+  await seedMilestones(request, [item]);
+  await setupApp(page, { items: [item] });
+
+  // Delay only the full-resolution download (the thumbnail URL carries
+  // `?thumb=1`) so the swap is observable.
+  await page.route('**/media.example/swap-1', async (route) => {
+    if (!route.request().url().includes('thumb=1')) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return route.continue();
+  });
+
+  await page.goto('/');
+  await expect(page.getByTestId('milestone-thumb')).toBeVisible();
+  await page.getByTestId('milestone-load-button').first().click();
+
+  const photo = page.getByTestId('milestone-photo');
+  await expect(photo).toBeVisible();
+  // Thumbnail is shown immediately, no blank white box.
+  await expect(photo).toHaveAttribute('src', /thumb=1/);
+  // Then the full-resolution image swaps in seamlessly.
+  await expect(photo).toHaveAttribute('src', 'https://media.example/swap-1');
 });

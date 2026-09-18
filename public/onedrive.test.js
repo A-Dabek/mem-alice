@@ -104,6 +104,8 @@ test('resolveItem uses one combined request and returns thumbUrl', async () => {
     downloadUrl: 'https://download.example/photo',
     thumbUrl: 'https://thumb.example/large',
     driveId: 'DRIVE',
+    width: null,
+    height: null,
   });
 });
 
@@ -183,7 +185,47 @@ test('resolveItem returns name, mime, downloadUrl and driveId', async () => {
     downloadUrl: 'https://download.example/photo',
     thumbUrl: null,
     driveId: 'DRIVE',
+    width: null,
+    height: null,
   });
+});
+
+test('resolveItem reads width/height from image > photo > video facets', async () => {
+  async function resolveWithFacets(facets) {
+    return withFetch(
+      async () =>
+        jsonResponse(200, {
+          id: 'ITEM',
+          name: 'photo.jpg',
+          file: { mimeType: 'image/jpeg' },
+          '@content.downloadUrl': 'https://download.example/photo',
+          ...facets,
+        }),
+      () => resolveItem('ITEM', null, ENDPOINT, 'token')
+    );
+  }
+
+  const imageOnly = await resolveWithFacets({
+    image: { width: 1200, height: 800 },
+  });
+  assert.deepEqual([imageOnly.width, imageOnly.height], [1200, 800]);
+
+  const photoOnly = await resolveWithFacets({
+    photo: { width: 640, height: 480 },
+  });
+  assert.deepEqual([photoOnly.width, photoOnly.height], [640, 480]);
+
+  const videoOnly = await resolveWithFacets({
+    video: { width: 1920, height: 1080 },
+  });
+  assert.deepEqual([videoOnly.width, videoOnly.height], [1920, 1080]);
+
+  const precedence = await resolveWithFacets({
+    image: { width: 1200, height: 800 },
+    photo: { width: 640, height: 480 },
+    video: { width: 1920, height: 1080 },
+  });
+  assert.deepEqual([precedence.width, precedence.height], [1200, 800]);
 });
 
 test('resolveItem maps 401 and 403 to AUTH_REQUIRED with status', async () => {

@@ -1,16 +1,20 @@
 /**
  * E2E OneDrive File Picker stub.
  *
- * `installPicker` replaces `window.open` with a fake popup whose form submit is
- * captured instead of navigating. `pickFile`/`closePicker` then drive the *real*
- * v8 postMessage/MessagePort handshake that `public/picker.js` implements:
+ * The picker is hosted in an inline iframe overlay. `installPicker` patches
+ * `HTMLFormElement.prototype.submit` so the POST that would navigate the iframe
+ * to Microsoft is recorded and skipped. `pickFile`/`closePicker` then drive the
+ * *real* v8 postMessage/MessagePort handshake that `public/picker.js`
+ * implements, using the app-created iframe's `contentWindow` as the message
+ * `source`:
  *
  *   initialize -> (opener sends) activate
  *   authenticate -> token
  *   pick -> success   (or close -> CANCELLED)
  *
- * This exercises the fragile id/port conventions (top-level `message.id`,
- * `event.ports[0]`, `event.source === popup`) without touching Microsoft.
+ * This exercises the fragile id/port/source conventions (top-level
+ * `message.id`, `event.ports[0]`, `event.source === iframe.contentWindow`)
+ * without touching Microsoft.
  */
 
 /**
@@ -18,35 +22,12 @@
  */
 export async function installPicker(page) {
   await page.addInitScript(() => {
-    window.__pickerState = { submitted: false, url: '', win: null };
+    window.__pickerState = { submitted: false, url: '' };
 
-    window.open = function fakeOpen() {
-      const form = {
-        _action: '',
-        setAttribute(name, value) {
-          if (name === 'action') this._action = value;
-        },
-        appendChild() {},
-        submit() {
-          window.__pickerState.url = this._action;
-          window.__pickerState.submitted = true;
-        },
-      };
-      const input = { setAttribute() {} };
-      const fakeWin = {
-        closed: false,
-        document: {
-          createElement(tag) {
-            return tag === 'form' ? form : input;
-          },
-          body: { append() {} },
-        },
-        close() {
-          this.closed = true;
-        },
-      };
-      window.__pickerState.win = fakeWin;
-      return fakeWin;
+    HTMLFormElement.prototype.submit = function submit() {
+      window.__pickerState.url = this.getAttribute('action') || '';
+      window.__pickerState.submitted = true;
+      // Skip navigation; the handshake is driven manually by the test.
     };
   });
 }
@@ -81,7 +62,13 @@ async function driveHandshake(page, command) {
   await page.evaluate(
     ({ channelId, command }) =>
       new Promise((resolve, reject) => {
-        const fakeWin = window.__pickerState.win;
+        const iframe = document.querySelector('iframe[name="OneDrivePicker"]');
+        const pickerWindow = iframe?.contentWindow;
+        if (!pickerWindow) {
+          reject(new Error('picker iframe not found'));
+          return;
+        }
+
         const channel = new MessageChannel();
         const openerPort = channel.port1;
         const pickerPort = channel.port2;
@@ -141,8 +128,8 @@ async function driveHandshake(page, command) {
           data: { type: 'initialize', channelId },
           ports: [openerPort],
         });
-        // `picker.js` ignores messages whose source isn't the popup.
-        Object.defineProperty(initEvent, 'source', { value: fakeWin });
+        // `picker.js` ignores messages whose source isn't the iframe window.
+        Object.defineProperty(initEvent, 'source', { value: pickerWindow });
         window.dispatchEvent(initEvent);
       }),
     { channelId, command }

@@ -65,6 +65,21 @@ function statusForError(error) {
 }
 
 /**
+ * Reserves a media box's aspect ratio before the media loads: the resolved
+ * intrinsic size when known, else 16/9 for video and 4/3 otherwise. Keeps the
+ * Timeline from reflowing as thumbnails and expanded media arrive.
+ *
+ * @param {string} mime
+ * @param {number | null} [width]
+ * @param {number | null} [height]
+ * @returns {string}
+ */
+function aspectFor(mime, width, height) {
+  if (width && height) return `${width} / ${height}`;
+  return (mime || '').startsWith('video/') ? '16 / 9' : '4 / 3';
+}
+
+/**
  * Fetches the stored milestone list, oldest first.
  *
  * @returns {Promise<Array<object>>}
@@ -86,17 +101,19 @@ async function fetchMilestones() {
  * Timeline screen.
  *
  * Renders the stored Graph references as a plain vertical wall (oldest first,
- * no dates). Each row is resolved lazily with Graph when it scrolls into view
- * to fetch its thumbnail + default download URL; clicking expands the full
- * photo/video inline. A deleted/moved source file degrades to a placeholder.
+ * no dates). Each row is resolved lazily against the OneDrive API when it
+ * scrolls into view to fetch its thumbnail + default download URL; clicking
+ * expands the full photo/video inline. A deleted/moved source file degrades to
+ * a placeholder. Media boxes reserve their aspect ratio to avoid layout shift.
  *
  * @param {{ onAddMilestone: () => void }} props
  */
 export function TimelineScreen({ onAddMilestone }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
-  const [resolved, setResolved] = useState({}); // id -> { status, thumbUrl, downloadUrl, mime }
+  const [resolved, setResolved] = useState({}); // id -> { status, thumbUrl, downloadUrl, mime, width, height }
   const [expanded, setExpanded] = useState({}); // id -> boolean
+  const [fullMedia, setFullMedia] = useState({}); // id -> true once full media is ready
   const [pendingDeleteId, setPendingDeleteId] = useState(null); // null | number
   const [deletingId, setDeletingId] = useState(null); // busy
   const [deleteError, setDeleteError] = useState('');
@@ -136,6 +153,8 @@ export function TimelineScreen({ onAddMilestone }) {
             thumbUrl: item.thumbUrl,
             downloadUrl: item.downloadUrl,
             mime: item.mime || milestone.media_mime,
+            width: item.width ?? null,
+            height: item.height ?? null,
           },
         }));
       })
@@ -169,6 +188,28 @@ export function TimelineScreen({ onAddMilestone }) {
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [milestones]);
+
+  // Progressive image swap: preload the full-resolution download URL and only
+  // swap the expanded <img> off the thumbnail once it is decoded, so "Zobacz
+  // zdjęcie" never flashes an empty white box. Videos use `poster` instead,
+  // handled natively by the element.
+  useEffect(() => {
+    for (const milestone of milestones || []) {
+      const id = milestone.id;
+      if (!expanded[id] || fullMedia[id]) continue;
+      const e = resolved[id];
+      if (!e?.downloadUrl) continue;
+      const mime = e.mime || milestone.media_mime || '';
+      if (mime.startsWith('video/')) continue;
+
+      const image = new Image();
+      const markLoaded = () =>
+        setFullMedia((prev) => (prev[id] ? prev : { ...prev, [id]: true }));
+      image.onload = markLoaded;
+      image.onerror = markLoaded;
+      image.src = e.downloadUrl;
+    }
+  }, [expanded, resolved, milestones, fullMedia]);
 
   // Escape closes the delete confirmation modal.
   const escapeEffect = typeof useLayoutEffect === 'function' ? useLayoutEffect : useEffect;
@@ -225,6 +266,12 @@ export function TimelineScreen({ onAddMilestone }) {
                 const mime = e?.mime || milestone.media_mime || '';
                 const isVideo = mime.startsWith('video/');
                 const isExpanded = expanded[milestone.id] && e?.downloadUrl;
+                const width = e?.width ?? milestone.media_width ?? null;
+                const height = e?.height ?? milestone.media_height ?? null;
+                const ratioStyle = `aspect-ratio: ${aspectFor(mime, width, height)}`;
+                const photoSrc = fullMedia[milestone.id]
+                  ? e?.downloadUrl
+                  : e?.thumbUrl || e?.downloadUrl;
                 return html`
                   <div class="milestone-item" data-testid="milestone-item" data-mid=${milestone.id} key=${milestone.id}>
                     ${isExpanded
@@ -232,7 +279,9 @@ export function TimelineScreen({ onAddMilestone }) {
                         ? html`<video
                             class="milestone-video"
                             data-testid="milestone-video"
+                            style=${ratioStyle}
                             src=${e.downloadUrl}
+                            poster=${e.thumbUrl || undefined}
                             controls
                             playsinline
                             preload="metadata"
@@ -240,7 +289,8 @@ export function TimelineScreen({ onAddMilestone }) {
                         : html`<img
                             class="milestone-photo"
                             data-testid="milestone-photo"
-                            src=${e.downloadUrl}
+                            style=${ratioStyle}
+                            src=${photoSrc}
                             alt=${milestone.title || ''}
                           />`
                       : e && e.status === 'ready' && e.thumbUrl
@@ -248,6 +298,7 @@ export function TimelineScreen({ onAddMilestone }) {
                             <img
                               class="milestone-thumb"
                               data-testid="milestone-thumb"
+                              style=${ratioStyle}
                               src=${e.thumbUrl}
                               alt=${milestone.title || ''}
                               loading="lazy"
@@ -263,7 +314,7 @@ export function TimelineScreen({ onAddMilestone }) {
                             </button>
                           `
                         : e && e.status === 'needs-auth'
-                          ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                          ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                               <span data-testid="milestone-media-loading">${REAUTH_ITEM}</span>
                               <button
                                 type="button"
@@ -275,11 +326,11 @@ export function TimelineScreen({ onAddMilestone }) {
                               </button>
                             </div>`
                           : e && e.status === 'gone'
-                            ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                            ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                                 <span data-testid="milestone-media-loading">${GONE_ITEM}</span>
                               </div>`
                             : e && e.status === 'error'
-                              ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                              ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                                   <span data-testid="milestone-media-loading">${RESOLVE_ERROR}</span>
                                   <button
                                     type="button"
@@ -290,7 +341,7 @@ export function TimelineScreen({ onAddMilestone }) {
                                     Spróbuj ponownie
                                   </button>
                                 </div>`
-                              : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                              : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                                   <span data-testid="milestone-media-loading">${LOADING_ITEM}</span>
                                 </div>`}
                     <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
