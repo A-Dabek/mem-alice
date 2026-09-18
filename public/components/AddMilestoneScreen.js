@@ -1,193 +1,88 @@
 import { h } from 'https://esm.sh/preact@10.19.3';
-import { useState, useEffect, useRef } from 'https://esm.sh/preact@10.19.3/hooks';
+import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { encryptField } from '../crypto.js';
+import { pickFile } from '../picker.js';
+import { resolveItem } from '../graph.js';
+import { getPickerToken } from '../auth.js';
 
 const html = htm.bind(h);
 
-const NO_MEDIA_ERROR = 'Wybierz zdjęcie lub wideo.';
+const NO_MEDIA_ERROR = 'Wybierz zdjęcie lub wideo z OneDrive.';
 const NO_TITLE_ERROR = 'Wpisz tytuł.';
-const NO_SUBTITLE_ERROR = 'Wpisz podtytuł.';
-const FILE_TOO_LARGE_ERROR = 'Plik musi być mniejszy niż 100 MB.';
+const POPUP_BLOCKED_ERROR = 'Zezwól na wyskakujące okna, aby wybrać plik.';
+const PICK_ERROR = 'Nie można wybrać pliku. Spróbuj ponownie.';
 const SAVE_ERROR = 'Nie można zapisać kamienia milowego. Spróbuj ponownie.';
 
-const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
+const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|webm)$/i;
 
 /**
- * Reads a `File` into raw bytes.
+ * Infers a media MIME type from the Graph file mime or the file name.
  *
- * @param {File} file
- * @returns {Promise<Uint8Array>}
+ * @param {string} mime
+ * @param {string} name
+ * @returns {string}
  */
-async function readFileBytes(file) {
-  const buffer = await file.arrayBuffer();
-  return new Uint8Array(buffer);
-}
-
-async function imageToThumbBytes(file, maxW = 640, mime = 'image/jpeg', q = 0.70) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxW / bitmap.width);
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  if (typeof bitmap.close === 'function') bitmap.close();
-  const blob = await new Promise((r) => canvas.toBlob(r, mime, q));
-  if (!blob) throw new Error('thumb toBlob failed');
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-async function videoToThumbBytes(file, maxW = 640, mime = 'image/jpeg', q = 0.70, seek = 0.5) {
-  const url = URL.createObjectURL(file);
-  const video = document.createElement('video');
-  video.src = url;
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = 'metadata';
-  video.style.position = 'fixed';
-  video.style.left = '-9999px';
-  video.style.width = '1px';
-  video.style.height = '1px';
-  video.style.opacity = '0';
-  // Append to DOM to ensure metadata loading in headless browsers
-  try { document.body.appendChild(video); } catch {}
-  try {
-    await new Promise((res, rej) => {
-      const timeout = setTimeout(() => rej(new Error('video load timeout')), 5000);
-      video.onloadedmetadata = () => { clearTimeout(timeout); res(); };
-      video.onerror = () => { clearTimeout(timeout); rej(new Error('video load')); };
-      // In case metadata already loaded
-      if (video.readyState >= 1) { clearTimeout(timeout); res(); }
-    });
-    if (Number.isFinite(video.duration) && video.duration > 0) {
-      const t = Math.min(seek, Math.max(0, video.duration - 0.1));
-      video.currentTime = t;
-      await new Promise((res) => {
-        let done = false;
-        const finish = () => { if (!done) { done = true; res(); } };
-        video.onseeked = finish;
-        video.onerror = finish;
-        setTimeout(finish, 800);
-      });
-      // Give a tick for frame render
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    const scale = Math.min(1, maxW / (video.videoWidth || maxW));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round((video.videoWidth || maxW) * scale);
-    canvas.height = Math.round((video.videoHeight || maxW * 9 / 16) * scale);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 2d unavailable');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise((r) => canvas.toBlob(r, mime, q));
-    if (!blob) throw new Error('video thumb toBlob failed');
-    return new Uint8Array(await blob.arrayBuffer());
-  } finally {
-    try { if (video.parentNode) video.parentNode.removeChild(video); } catch {}
-    URL.revokeObjectURL(url);
-  }
-}
-
-function chooseThumbGenerator(file) {
-  return file.type.startsWith('image/') ? imageToThumbBytes : videoToThumbBytes;
+function inferMime(mime, name) {
+  if (mime) return mime;
+  return VIDEO_EXTENSIONS.test(name || '') ? 'video/mp4' : 'image/jpeg';
 }
 
 /**
- * Add Milestone screen.
+ * Add Milestone screen (OneDrive picker PoC).
  *
- * Lets the user pick/take a photo or video and type a title and subtitle,
- * encrypts all fields client-side with the in-memory AES key (the server
- * never sees plaintext), and POSTs only ciphertext + mime type to
- * /api/milestones. On success, returns to the Timeline route so the new
- * entry is immediately visible.
+ * Picks a photo/video straight from the user's OneDrive, resolves its
+ * download URL + mime via Graph for the preview, and POSTs only the Graph
+ * reference + title/subtitle to /api/milestones. No media is uploaded.
  *
- * @param {{ cryptoKey: CryptoKey, onSaved: () => void }} props
+ * @param {{ onSaved: () => void }} props
  */
-export function AddMilestoneScreen({ cryptoKey, onSaved }) {
-  const [mediaFile, setMediaFile] = useState(null);
+export function AddMilestoneScreen({ onSaved }) {
+  const [item, setItem] = useState(null); // { id, driveId, downloadUrl, name, mime }
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [thumbBytes, setThumbBytes] = useState(null);
-  const [thumbPreviewUrl, setThumbPreviewUrl] = useState(null);
-  const thumbPreviewRef = useRef(null);
+  const [picking, setPicking] = useState(false);
 
-  // Revoke previous thumb preview URL when it changes or on unmount
-  useEffect(() => {
-    return () => {
-      if (thumbPreviewRef.current) {
-        try { URL.revokeObjectURL(thumbPreviewRef.current); } catch {}
-      }
-      if (thumbPreviewUrl) {
-        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    // Keep ref in sync for cleanup
-    thumbPreviewRef.current = thumbPreviewUrl;
-  }, [thumbPreviewUrl]);
-
-  function handleMediaChange(event) {
-    const file = event.target.files && event.target.files[0];
-    if (file && file.size > MAX_FILE_SIZE_BYTES) {
-      setError(FILE_TOO_LARGE_ERROR);
-      setMediaFile(null);
-      setThumbBytes(null);
-      if (thumbPreviewUrl) {
-        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
-        setThumbPreviewUrl(null);
-      }
-      // reset input value so same file can be re-selected after error
-      event.target.value = '';
-      return;
-    }
+  async function handlePick() {
+    if (picking) return;
+    setPicking(true);
     setError('');
-    setMediaFile(file || null);
-
-    // Thumbnail generation is best-effort, never blocks save.
-    if (thumbPreviewUrl) {
-      try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
-      setThumbPreviewUrl(null);
-    }
-    setThumbBytes(null);
-    if (file) {
-      try {
-        const gen = chooseThumbGenerator(file);
-        gen(file).then((bytes) => {
-          setThumbBytes(bytes);
-          try {
-            const blob = new Blob([bytes], { type: 'image/jpeg' });
-            const url = URL.createObjectURL(blob);
-            setThumbPreviewUrl(url);
-          } catch {}
-        }).catch(() => {
-          setThumbBytes(null);
-        });
-      } catch {
-        setThumbBytes(null);
+    try {
+      // Acquire the OneDrive token (and its consent) BEFORE opening the picker
+      // window, so the interactive consent popup is the first popup.
+      const token = await getPickerToken();
+      const picked = await pickFile(token);
+      const resolved = await resolveItem(picked.id, picked.driveId);
+      setItem({
+        id: picked.id,
+        driveId: picked.driveId,
+        downloadUrl: resolved.downloadUrl,
+        name: resolved.name,
+        mime: inferMime(resolved.mime, resolved.name),
+      });
+    } catch (err) {
+      const code = err?.message;
+      if (code === 'CANCELLED') {
+        // user dismissed the picker - not an error
+      } else if (code === 'POPUP_BLOCKED') {
+        setError(POPUP_BLOCKED_ERROR);
+      } else {
+        setError(PICK_ERROR);
       }
+    } finally {
+      setPicking(false);
     }
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (busy) {
-      return;
-    }
+    if (busy) return;
 
-    if (!mediaFile) {
+    if (!item) {
       setError(NO_MEDIA_ERROR);
-      return;
-    }
-
-    if (mediaFile.size > MAX_FILE_SIZE_BYTES) {
-      setError(FILE_TOO_LARGE_ERROR);
       return;
     }
 
@@ -197,45 +92,20 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
       return;
     }
 
-    const trimmedSubtitle = subtitle.trim();
-    if (!trimmedSubtitle) {
-      setError(NO_SUBTITLE_ERROR);
-      return;
-    }
-
     setBusy(true);
     setError('');
 
     try {
-      const mediaBytes = await readFileBytes(mediaFile);
-
-      const [encryptedTitle, encryptedSubtitle, encryptedMedia] = await Promise.all([
-        encryptField(cryptoKey, trimmedTitle),
-        encryptField(cryptoKey, trimmedSubtitle),
-        encryptField(cryptoKey, mediaBytes),
-      ]);
-
-      let encryptedThumb = null;
-      if (thumbBytes) {
-        try {
-          encryptedThumb = await encryptField(cryptoKey, thumbBytes);
-        } catch {
-          encryptedThumb = null;
-        }
-      }
-
       const response = await fetch('/api/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title_ct: encryptedTitle.ciphertext,
-          title_iv: encryptedTitle.iv,
-          subtitle_ct: encryptedSubtitle.ciphertext,
-          subtitle_iv: encryptedSubtitle.iv,
-          media_ct: encryptedMedia.ciphertext,
-          media_iv: encryptedMedia.iv,
-          media_mime: mediaFile.type || 'application/octet-stream',
-          ...(encryptedThumb ? { thumb_ct: encryptedThumb.ciphertext, thumb_iv: encryptedThumb.iv, thumb_mime: 'image/jpeg' } : {}),
+          title: trimmedTitle,
+          subtitle: subtitle.trim(),
+          drive_item_id: item.id,
+          drive_id: item.driveId,
+          media_mime: item.mime,
+          item_name: item.name,
         }),
       });
 
@@ -243,14 +113,9 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
         throw new Error(SAVE_ERROR);
       }
 
-      setMediaFile(null);
+      setItem(null);
       setTitle('');
       setSubtitle('');
-      setThumbBytes(null);
-      if (thumbPreviewUrl) {
-        try { URL.revokeObjectURL(thumbPreviewUrl); } catch {}
-        setThumbPreviewUrl(null);
-      }
       onSaved();
     } catch {
       setError(SAVE_ERROR);
@@ -259,38 +124,42 @@ export function AddMilestoneScreen({ cryptoKey, onSaved }) {
     }
   }
 
+  const isVideo = item ? item.mime.startsWith('video/') : false;
+
   return html`
     <div class="add-screen">
       <h1>Dodaj kamień milowy</h1>
       <form onSubmit=${handleSubmit}>
-        <label class="field">
-          <span>Zdjęcie lub wideo</span>
-          <input
-            type="file"
-            accept="image/*,video/mp4"
-            capture="environment"
-            data-testid="media-input"
-            onChange=${handleMediaChange}
-          />
-          <!-- Backwards-compat alias for e2e tests still using photo-input -->
-          <input
-            type="file"
-            accept="image/*,video/mp4"
-            capture="environment"
-            data-testid="photo-input"
-            onChange=${handleMediaChange}
-            style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;"
-            tabindex="-1"
-            aria-hidden="true"
-          />
-        </label>
-        ${mediaFile
-          ? html`<p class="media-preview" data-testid="media-preview">
-              ${mediaFile.name} — ${(mediaFile.size / (1024 * 1024)).toFixed(2)} MB
-            </p>`
-          : null}
-        ${thumbPreviewUrl
-          ? html`<img data-testid="thumb-preview" src=${thumbPreviewUrl} alt="Podgląd miniatury" style="width:100%;max-width:320px;display:block;margin:0.5rem 0;" />`
+        <button
+          type="button"
+          class="picker-button"
+          data-testid="picker-button"
+          disabled=${picking}
+          onClick=${handlePick}
+        >
+          ${picking ? 'Wybieranie...' : 'Wybierz z OneDrive'}
+        </button>
+        ${item
+          ? html`<div class="media-preview" data-testid="media-preview">
+              ${item.downloadUrl
+                ? isVideo
+                  ? html`<video
+                      class="preview-media"
+                      data-testid="preview-video"
+                      src=${item.downloadUrl}
+                      controls
+                      playsinline
+                      preload="metadata"
+                    ></video>`
+                  : html`<img
+                      class="preview-media"
+                      data-testid="preview-image"
+                      src=${item.downloadUrl}
+                      alt="Podgląd"
+                    />`
+                : null}
+              <p class="media-preview-name">${item.name}</p>
+            </div>`
           : null}
         <label class="field">
           <span>Tytuł</span>

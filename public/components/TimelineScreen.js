@@ -2,14 +2,15 @@ import { h } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { decryptField, decryptText } from '../crypto.js';
+import { resolveItem, getThumbnailUrl } from '../graph.js';
 
 const html = htm.bind(h);
 
 const LOAD_ERROR = 'Nie można wczytać kamieni milowych. Spróbuj ponownie.';
+const BROKEN_ITEM = 'Nie można wczytać tego elementu';
 
 /**
- * Fetches the (still-encrypted) milestone list, oldest first.
+ * Fetches the stored milestone list, oldest first.
  *
  * @returns {Promise<Array<object>>}
  */
@@ -29,138 +30,98 @@ async function fetchMilestones() {
 /**
  * Timeline screen.
  *
- * Fetches the (encrypted) milestone list - oldest first, since there are no
- * dates anywhere and entries are simply ordered by upload order - decrypts
- * titles/subtitles and thumbnails eagerly, and renders them as a plain
- * vertical wall: one thumbnail with its title underneath, scrollable like a feed.
- * Full media is fetched on click (click-to-load) via GET /:id/media, decrypted
- * and inline-replaced. No cards, no swiping, no pagination/infinite scroll.
+ * Renders the stored Graph references as a plain vertical wall (oldest first,
+ * no dates). Each row is resolved lazily with Graph when it scrolls into view
+ * to fetch its thumbnail + default download URL; clicking expands the full
+ * photo/video inline. A deleted/moved source file degrades to a placeholder.
  *
- * @param {{ cryptoKey: CryptoKey, onAddMilestone: () => void }} props
+ * @param {{ onAddMilestone: () => void }} props
  */
-export function TimelineScreen({ cryptoKey, onAddMilestone }) {
+export function TimelineScreen({ onAddMilestone }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
-  const [decrypted, setDecrypted] = useState({}); // id -> { title, subtitle, thumbUrl, thumbMime, mediaUrl?, mediaMime, mediaState:'idle'|'loading'|'ready', error? }
+  const [resolved, setResolved] = useState({}); // id -> { status, thumbUrl, downloadUrl, mime }
+  const [expanded, setExpanded] = useState({}); // id -> boolean
   const [pendingDeleteId, setPendingDeleteId] = useState(null); // null | number
   const [deletingId, setDeletingId] = useState(null); // busy
   const [deleteError, setDeleteError] = useState('');
 
-  const objectUrlsRef = useRef(new Set());
+  const wallRef = useRef(null);
+  const startedRef = useRef(new Set());
 
-  // Fetch the list once on mount.
   useEffect(() => {
     let cancelled = false;
     fetchMilestones()
       .then((rows) => {
-        if (!cancelled) {
-          setMilestones(rows);
-        }
+        if (!cancelled) setMilestones(rows);
       })
       .catch(() => {
-        if (!cancelled) {
-          setLoadError(LOAD_ERROR);
-        }
+        if (!cancelled) setLoadError(LOAD_ERROR);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Decrypt every entry once the list is known — eagerly decrypt titles, subtitles and thumbnails only.
+  function loadOne(id) {
+    if (startedRef.current.has(id)) return;
+    startedRef.current.add(id);
+
+    const milestone = (milestones || []).find((item) => item.id === id);
+    if (!milestone) return;
+
+    setResolved((prev) => ({ ...prev, [id]: { status: 'loading' } }));
+
+    Promise.all([
+      resolveItem(milestone.drive_item_id, milestone.drive_id),
+      getThumbnailUrl(milestone.drive_item_id, milestone.drive_id),
+    ])
+      .then(([item, thumbUrl]) => {
+        setResolved((prev) => ({
+          ...prev,
+          [id]: {
+            status: 'ready',
+            thumbUrl,
+            downloadUrl: item.downloadUrl,
+            mime: item.mime || milestone.media_mime,
+          },
+        }));
+      })
+      .catch(() => {
+        setResolved((prev) => ({ ...prev, [id]: { status: 'error' } }));
+      });
+  }
+
+  // Resolve thumbnails lazily: only when a row scrolls into view.
   useEffect(() => {
-    if (!milestones || milestones.length === 0) {
+    if (!milestones || milestones.length === 0 || !wallRef.current) {
       return undefined;
     }
 
-    let cancelled = false;
-
-    async function loadOne(milestone) {
-      try {
-        const [title, subtitle] = await Promise.all([
-          decryptText(cryptoKey, milestone.title_ct, milestone.title_iv),
-          decryptText(cryptoKey, milestone.subtitle_ct, milestone.subtitle_iv),
-        ]);
-
-        let thumbUrl = null;
-        if (milestone.thumb_ct && milestone.thumb_iv) {
-          try {
-            const thumbBytes = await decryptField(cryptoKey, milestone.thumb_ct, milestone.thumb_iv);
-            if (cancelled) return;
-            const blob = new Blob([thumbBytes], { type: milestone.thumb_mime || 'image/jpeg' });
-            thumbUrl = URL.createObjectURL(blob);
-            objectUrlsRef.current.add(thumbUrl);
-          } catch {
-            thumbUrl = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            observer.unobserve(entry.target);
+            loadOne(Number(entry.target.dataset.mid));
           }
-        }
+        });
+      },
+      { rootMargin: '200px' }
+    );
 
-        if (cancelled) {
-          if (thumbUrl) {
-            try { URL.revokeObjectURL(thumbUrl); } catch {}
-            objectUrlsRef.current.delete(thumbUrl);
-          }
-          return;
-        }
+    wallRef.current.querySelectorAll('[data-mid]').forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [milestones]);
 
-        setDecrypted((prev) => ({
-          ...prev,
-          [milestone.id]: {
-            title,
-            subtitle,
-            thumbUrl,
-            thumbMime: milestone.thumb_mime,
-            mediaMime: milestone.media_mime,
-            mediaState: 'idle',
-          },
-        }));
-      } catch {
-        if (!cancelled) {
-          setDecrypted((prev) => ({
-            ...prev,
-            [milestone.id]: { error: true },
-          }));
-        }
-      }
-    }
-
-    milestones.forEach((milestone) => loadOne(milestone));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [milestones, cryptoKey]);
-
-  async function loadMedia(id) {
-    const cur = decrypted[id];
-    if (!cur || cur.mediaState !== 'idle') return;
-    setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaState: 'loading' } }));
-    try {
-      const res = await fetch('/api/milestones/' + id + '/media');
-      if (!res.ok) throw new Error('fetch media failed');
-      const { media_ct, media_iv, media_mime } = await res.json();
-      const bytes = await decryptField(cryptoKey, media_ct, media_iv);
-      const url = URL.createObjectURL(new Blob([bytes], { type: media_mime }));
-      objectUrlsRef.current.add(url);
-      setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaUrl: url, mediaMime: media_mime, mediaState: 'ready' } }));
-    } catch {
-      setDecrypted((prev) => ({ ...prev, [id]: { ...prev[id], mediaState: 'error', error: true } }));
-    }
-  }
-
-  // Revoke object URLs on unmount to avoid leaking memory.
-  useEffect(() => {
-    return () => {
-      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      objectUrlsRef.current.clear();
-    };
-  }, []);
-
-  // Escape closes delete confirmation modal
+  // Escape closes the delete confirmation modal.
   const escapeEffect = typeof useLayoutEffect === 'function' ? useLayoutEffect : useEffect;
   escapeEffect(() => {
     if (pendingDeleteId === null) return undefined;
-    function onKey(e) { if (e.key === 'Escape' || e.key === 'Esc') setPendingDeleteId(null); }
+    function onKey(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') setPendingDeleteId(null);
+    }
     window.addEventListener('keydown', onKey);
     document.addEventListener('keydown', onKey);
     return () => {
@@ -203,20 +164,20 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
             </div>
           `
         : html`
-            <div class="milestone-wall" data-testid="timeline-wall">
+            <div class="milestone-wall" data-testid="timeline-wall" ref=${wallRef}>
               ${milestones.map((milestone) => {
-                const e = decrypted[milestone.id];
-                const isVideo = (e?.mediaMime || milestone.media_mime) === 'video/mp4';
-                const thumbReady = e && e.thumbUrl;
-                const mediaReady = e && e.mediaState === 'ready' && e.mediaUrl;
+                const e = resolved[milestone.id];
+                const mime = e?.mime || milestone.media_mime || '';
+                const isVideo = mime.startsWith('video/');
+                const isExpanded = expanded[milestone.id] && e?.downloadUrl;
                 return html`
-                  <div class="milestone-item" data-testid="milestone-item" key=${milestone.id}>
-                    ${mediaReady
+                  <div class="milestone-item" data-testid="milestone-item" data-mid=${milestone.id} key=${milestone.id}>
+                    ${isExpanded
                       ? isVideo
                         ? html`<video
                             class="milestone-video"
                             data-testid="milestone-video"
-                            src=${e.mediaUrl}
+                            src=${e.downloadUrl}
                             controls
                             playsinline
                             preload="metadata"
@@ -224,63 +185,37 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                         : html`<img
                             class="milestone-photo"
                             data-testid="milestone-photo"
-                            src=${e.mediaUrl}
-                            alt=${e.title || ''}
+                            src=${e.downloadUrl}
+                            alt=${milestone.title || ''}
                           />`
-                      : thumbReady
+                      : e && e.status === 'ready' && e.thumbUrl
                         ? html`
                             <img
                               class="milestone-thumb"
                               data-testid="milestone-thumb"
                               src=${e.thumbUrl}
-                              alt=${e.title || ''}
+                              alt=${milestone.title || ''}
                               loading="lazy"
-                              onClick=${() => loadMedia(milestone.id)}
-                              style="cursor:pointer"
+                              onClick=${() => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
                             />
                             <button
                               type="button"
                               class="milestone-load-button"
                               data-testid="milestone-load-button"
-                              disabled=${e.mediaState === 'loading'}
-                              onClick=${() => loadMedia(milestone.id)}
+                              onClick=${() => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
                             >
-                              ${e.mediaState === 'loading' ? 'Ładowanie...' : isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
+                              ${isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
                             </button>
                           `
-                        : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
-                            <span data-testid="milestone-media-loading"
-                              >${e && e.error ? 'Nie można odszyfrować podglądu' : 'Ładowanie podglądu...'}</span
-                            >
-                          </div>
-                          ${e && !e.error
-                            ? html`<button
-                                type="button"
-                                class="milestone-load-button"
-                                data-testid="milestone-load-button"
-                                disabled=${e.mediaState === 'loading'}
-                                onClick=${() => loadMedia(milestone.id)}
-                              >
-                                ${e.mediaState === 'loading' ? 'Ładowanie...' : isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
-                              </button>`
-                            : null}`}
-                    ${!mediaReady && e && e.mediaState === 'error'
-                      ? html`<p class="error" data-testid="milestone-media-error">Nie można odszyfrować multimediów</p>`
-                      : null}
-                    <p class="milestone-title" data-testid="milestone-title">
-                      ${e
-                        ? e.error
-                          ? 'Nie można odszyfrować tytułu'
-                          : e.title
-                        : 'Odszyfrowywanie...'}
-                    </p>
-                    <p class="milestone-subtitle" data-testid="milestone-subtitle">
-                      ${e
-                        ? e.error
-                          ? 'Nie można odszyfrować podtytułu'
-                          : e.subtitle
-                        : 'Odszyfrowywanie...'}
-                    </p>
+                        : e && e.status === 'error'
+                          ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                              <span data-testid="milestone-media-loading">${BROKEN_ITEM}</span>
+                            </div>`
+                          : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder">
+                              <span data-testid="milestone-media-loading">Ładowanie podglądu...</span>
+                            </div>`}
+                    <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
+                    <p class="milestone-subtitle" data-testid="milestone-subtitle">${milestone.subtitle}</p>
                     <button type="button" class="delete-button" data-testid="delete-button" data-id=${milestone.id} onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}>Usuń</button>
                   </div>
                 `;
@@ -301,23 +236,10 @@ export function TimelineScreen({ cryptoKey, onAddMilestone }) {
                 try {
                   const res = await fetch('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
                   if (!res.ok) throw new Error('delete failed');
-                  const entry = decrypted[pendingDeleteId];
-                  if (entry) {
-                    if (entry.mediaUrl) {
-                      try { URL.revokeObjectURL(entry.mediaUrl); } catch {}
-                      objectUrlsRef.current.delete(entry.mediaUrl);
-                    }
-                    if (entry.thumbUrl) {
-                      try { URL.revokeObjectURL(entry.thumbUrl); } catch {}
-                      objectUrlsRef.current.delete(entry.thumbUrl);
-                    }
-                    if (entry.photoUrl && entry.photoUrl !== (entry.mediaUrl || '') && entry.photoUrl !== (entry.thumbUrl || '')) {
-                      try { URL.revokeObjectURL(entry.photoUrl); } catch {}
-                      objectUrlsRef.current.delete(entry.photoUrl);
-                    }
-                  }
+                  startedRef.current.delete(pendingDeleteId);
                   setMilestones(prev => prev.filter(m => m.id !== pendingDeleteId));
-                  setDecrypted(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
+                  setResolved(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
+                  setExpanded(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
                   setPendingDeleteId(null);
                 } catch {
                   setDeleteError('Nie można usunąć kamienia milowego. Spróbuj ponownie.');

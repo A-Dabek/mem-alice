@@ -11,6 +11,10 @@ const DEFAULT_DB_PATH = path.join(__dirname, '..', 'data', 'milestones.db');
  * Opens (creating if necessary) the sqlite database at the given path and
  * ensures the required tables exist.
  *
+ * The server stores only Graph references + plaintext title/subtitle for the
+ * PoC; media itself never leaves OneDrive. There are no dates anywhere -
+ * milestones are ordered purely by insertion order (autoincrementing id).
+ *
  * @param {string} [dbPath] - path to the sqlite file. Defaults to data/milestones.db.
  * @returns {import('better-sqlite3').Database}
  */
@@ -22,57 +26,16 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
   db.pragma('journal_mode = WAL');
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS config (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
-
-  // No date/timestamp columns: milestones are ordered purely by insertion
-  // order (the autoincrementing id), oldest first - there are no dates
-  // anywhere in this app, including the database.
-  db.exec(`
     CREATE TABLE IF NOT EXISTS milestones (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title_ct TEXT NOT NULL,
-      title_iv TEXT NOT NULL,
-      subtitle_ct TEXT NOT NULL DEFAULT '',
-      subtitle_iv TEXT NOT NULL DEFAULT '',
-      media_ct TEXT NOT NULL,
-      media_iv TEXT NOT NULL,
-      media_mime TEXT NOT NULL
+      title TEXT NOT NULL,
+      subtitle TEXT NOT NULL DEFAULT '',
+      drive_item_id TEXT NOT NULL,
+      drive_id TEXT,
+      media_mime TEXT NOT NULL,
+      item_name TEXT
     );
   `);
-
-  // Migration for pre-existing databases created before the subtitle field
-  // was added: add the columns (non-nullable, with a default so existing
-  // rows stay valid) if they aren't there yet.
-  const existingColumns = db.prepare('PRAGMA table_info(milestones)').all();
-  const hasSubtitleCt = existingColumns.some((col) => col.name === 'subtitle_ct');
-  const hasSubtitleIv = existingColumns.some((col) => col.name === 'subtitle_iv');
-
-  if (!hasSubtitleCt) {
-    db.exec(`ALTER TABLE milestones ADD COLUMN subtitle_ct TEXT NOT NULL DEFAULT ''`);
-  }
-  if (!hasSubtitleIv) {
-    db.exec(`ALTER TABLE milestones ADD COLUMN subtitle_iv TEXT NOT NULL DEFAULT ''`);
-  }
-
-  // Migration for thumbnail columns (V1 click-to-load): nullable for
-  // best-effort/back-compat — old rows have no thumb, Timeline shows placeholder.
-  const hasThumbCt = existingColumns.some((col) => col.name === 'thumb_ct');
-  const hasThumbIv = existingColumns.some((col) => col.name === 'thumb_iv');
-  const hasThumbMime = existingColumns.some((col) => col.name === 'thumb_mime');
-
-  if (!hasThumbCt) {
-    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_ct TEXT`);
-  }
-  if (!hasThumbIv) {
-    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_iv TEXT`);
-  }
-  if (!hasThumbMime) {
-    db.exec(`ALTER TABLE milestones ADD COLUMN thumb_mime TEXT`);
-  }
 
   return db;
 }

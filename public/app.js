@@ -2,7 +2,8 @@ import { h, render } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { UnlockScreen } from './components/UnlockScreen.js';
+import { getAccount } from './auth.js';
+import { SignInScreen } from './components/SignInScreen.js';
 import { AddMilestoneScreen } from './components/AddMilestoneScreen.js';
 import { TimelineScreen } from './components/TimelineScreen.js';
 
@@ -24,18 +25,31 @@ function getRoute() {
 /**
  * Root component.
  *
- * Holds the app-wide `locked`/`unlocked` state (implied by whether
- * `cryptoKey` is set) and the in-memory AES key derived by the
- * `UnlockScreen`. The key never touches storage - it lives only in this
- * component's state for the lifetime of the page/session, per the "no
- * persisted passphrase" requirement.
- *
- * There is no tab bar: the Timeline is the only "home" screen, reached with
- * a single "Add" button that navigates to the `#add` route.
+ * Holds the signed-in account (from MSAL, cached in sessionStorage by the
+ * library - nothing sensitive is kept here) and the current route. Signed
+ * out -> SignInScreen; signed in -> Timeline / Add.
  */
 function App() {
-  const [cryptoKey, setCryptoKey] = useState(null);
+  const [account, setAccount] = useState(null);
+  const [ready, setReady] = useState(false);
   const [route, setRoute] = useState(getRoute());
+
+  useEffect(() => {
+    let cancelled = false;
+    getAccount()
+      .then((current) => {
+        if (!cancelled) setAccount(current);
+      })
+      .catch((error) => {
+        console.error('[app] could not restore account', error);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     function handleHashChange() {
@@ -45,8 +59,12 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  if (!cryptoKey) {
-    return html`<${UnlockScreen} onUnlock=${setCryptoKey} />`;
+  if (!ready) {
+    return html`<div class="app-loading" data-testid="app-loading">Ładowanie...</div>`;
+  }
+
+  if (!account) {
+    return html`<${SignInScreen} onSignedIn=${setAccount} />`;
   }
 
   function goToAdd() {
@@ -61,8 +79,8 @@ function App() {
     <div class="app-shell">
       <main class="app-content">
         ${route === 'add'
-          ? html`<${AddMilestoneScreen} cryptoKey=${cryptoKey} onSaved=${goToTimeline} />`
-          : html`<${TimelineScreen} cryptoKey=${cryptoKey} onAddMilestone=${goToAdd} />`}
+          ? html`<${AddMilestoneScreen} onSaved=${goToTimeline} />`
+          : html`<${TimelineScreen} onAddMilestone=${goToAdd} />`}
       </main>
     </div>
   `;

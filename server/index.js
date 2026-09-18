@@ -3,16 +3,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { openDb } from './db.js';
-import { createConfigRouter } from './routes/config.js';
 import { createMilestonesRouter } from './routes/milestones.js';
 import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Creates the Express app. The server never decrypts anything and never
- * logs request bodies, so plaintext titles/photos are never persisted or
- * printed - only ciphertext + non-secret metadata flow through here.
+ * Creates the Express app. The server only stores picker references and
+ * plaintext title/subtitle for the PoC - media lives in OneDrive and never
+ * flows through here. Request bodies are never logged.
  *
  * @param {import('better-sqlite3').Database} db
  * @returns {import('express').Express}
@@ -20,23 +19,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export function createApp(db) {
   const app = express();
 
-  // Raised limit to accommodate base64-encoded media payloads (100MB binary ~133MB base64).
-  app.use(express.json({ limit: '150mb' }));
+  app.use(express.json());
 
   app.use((err, req, res, next) => {
-    if (err?.type === 'entity.too.large' || err?.status === 413) {
-      logger.warn('error while adding milestone', {
-        method: req.method,
-        path: req.path,
-        reason: 'payload too large',
-        limit: '150mb',
-      });
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-      res.setHeader('Surrogate-Control', 'no-store');
-      return res.status(413).json({ error: 'Payload too large' });
-    }
     if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
       logger.warn('error while parsing request', {
         method: req.method,
@@ -74,7 +59,14 @@ export function createApp(db) {
     }),
   );
 
-  app.use('/api', createConfigRouter(db));
+  app.get('/api/config', (req, res) => {
+    res.json({
+      clientId: process.env.MS_CLIENT_ID ?? null,
+      authority:
+        process.env.MS_AUTHORITY || 'https://login.microsoftonline.com/consumers',
+    });
+  });
+
   app.use('/api/milestones', createMilestonesRouter(db));
 
   app.use((req, res) => {
@@ -105,6 +97,12 @@ if (isMainModule) {
   const db = openDb(process.env.DB_PATH || undefined);
   const app = createApp(db);
   const port = process.env.PORT || 3000;
+
+  if (!process.env.MS_CLIENT_ID) {
+    logger.warn('MS_CLIENT_ID is not set - sign-in is disabled', {
+      hint: 'start with MS_CLIENT_ID=<azure-app-id> pnpm start',
+    });
+  }
 
   app.listen(port, () => {
     logger.info('server listening', { port });

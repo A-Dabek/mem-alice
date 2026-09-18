@@ -34,7 +34,7 @@ export default defineConfig({
       PORT: String(PORT),
       DB_PATH: dbPath,
     },
-    url: `${BASE_URL}/api/salt`,
+    url: `${BASE_URL}/api/config`,
     reuseExistingServer: false,
     timeout: 20000,
   },

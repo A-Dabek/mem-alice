@@ -1,31 +1,67 @@
 # mem-alice — Agent Guidelines
 
 ## Project Overview
-- E2E-encrypted milestones: client-side `public/crypto.js:125` `encryptField`/`decryptField` (AES-GCM), server never sees plaintext.
-- DB `server/db.js:35` `milestones` ordered by `id ASC` (no dates).
+- OneDrive-backed milestones (PoC): the server stores only a title/subtitle plus
+  Graph references to files living in the user's OneDrive. No encryption, no
+  media upload.
+- Full handoff + protocol/debug notes: `docs/onedrive-picker-poc.md` — read it
+  before touching `public/` or the schema.
+- DB `server/db.js` `milestones` ordered by `id ASC` (no dates anywhere).
 
-## Video Milestones (2026-09-07)
-- **Schema**: clean rename `photo_*` → `media_*` (`media_ct`, `media_iv`, `media_mime` TEXT NOT NULL) `server/db.js:35`, `server/routes/milestones.js:3`. No migration, devs MUST `rm data/milestones.db*` after pull.
-- **Limits**: binary 100 MB → base64 ~133 MB + overhead → `express.json({limit:'150mb'})` `server/index.js:23`. Client `AddMilestoneScreen.js:15` `MAX_FILE_SIZE_BYTES=100*1024*1024` rejected before `arrayBuffer()` with `FILE_TOO_LARGE_ERROR`.
-- **MIME allowlist**: `media_mime.startsWith('image/') || media_mime==='video/mp4'` `server/routes/milestones.js:21`, else 400. `application/octet-stream` rejected.
-- **Frontend Add**: `public/components/AddMilestoneScreen.js` `mediaFile` state, `accept="image/*,video/mp4"`, `data-testid="media-input"` + alias `photo-input` (hidden offscreen) for compat, preview `media-preview`, POST `{media_ct,media_iv,media_mime}`.
-- **Frontend Timeline**: `public/components/TimelineScreen.js:43` `decrypted: {title,subtitle,mediaUrl,mediaMime,photoUrl}` alias, `decryptField(media_ct,media_iv)` + `media_mime`, conditional `<video data-testid="milestone-video" controls playsinline preload="metadata">` vs `<img data-testid="milestone-photo">`, placeholder `milestone-photo-loading` outer + `milestone-media-loading` inner span, `Could not decrypt media`/`Loading media...`.
-- **Styles**: `.milestone-video {width:100%;background:#000}` `public/styles.css:270`.
-- **Fixtures**: `tests/e2e/fixtures/sample.mp4` 18 MB present, added `sample-small.mp4` 300 KB (`dd bs=1K count=300`) for fast E2E.
+## Schema & API
+- `milestones(id, title, subtitle DEFAULT '', drive_item_id NOT NULL, drive_id,
+  media_mime NOT NULL, item_name)`. No `config` table, no migrations. After a
+  schema change devs MUST `rm -f data/milestones.db*`.
+- `server/routes/milestones.js`: `GET /` (oldest first), `POST /`
+  `{title,subtitle?,drive_item_id,drive_id?,media_mime,item_name?}`,
+  `DELETE /:id`, bulk `DELETE /`. No auth/MIME allowlist yet.
+- `server/index.js`: `GET /api/config` → `{clientId: MS_CLIENT_ID, authority}`,
+  default `express.json()`, no-cache static. Server never calls Graph and never
+  logs request bodies.
+
+## Frontend
+- `public/auth.js` — MSAL browser 2.19.0 (CDN in `index.html`), config from
+  `/api/config`. Scopes: `Files.Read` (Graph), `OneDrive.ReadOnly` (picker).
+  `getMsalApp()` clears its cached promise on failure; `getPickerToken()`
+  (interactive) must run before the picker window opens;
+  `trySilentPickerToken()` is the only token call allowed inside the picker
+  message flow (popups are blocked there).
+- `public/picker.js` — File Picker v8. Consumer base
+  `https://onedrive.live.com/picker`, pivots restricted to `oneDrive`/`recent`.
+  **Command responses must use the top-level id `message.id`** (not
+  `message.data.id`) or the picker throws `acknowledgeTimeout`. Ignore
+  `command.resource` for consumer (requesting `${resource}/.default` fails with
+  `AADSTS9002332`).
+- `public/graph.js` — `resolveItem`/`getThumbnailUrl`. Currently a picked item
+  returns 401 (see handoff doc "Known issue").
+- `app.js` → `SignInScreen` when signed out, else `AddMilestoneScreen`/`TimelineScreen`.
+- Add uses the picker + Graph preview and POSTs the reference. Timeline resolves
+  thumbnails lazily; broken item → placeholder; delete modal retained.
+
+## Environment
+- Sign-in is disabled without a client id:
+  `MS_CLIENT_ID=<app-id> pnpm start` (optional `MS_AUTHORITY`, default consumer).
+  Boot logs a WARN when missing.
 
 ## Testing
-- **Unit**: `pnpm test` → `node --test server/ public/` (`server/server.test.js`, `public/crypto.test.js`). Must cover: image round-trip, video/mp4 round-trip, `video/webm` 400, `application/octet-stream` 400, missing `media_*` 400, ordered oldest-first.
-- **E2E**: `playwright.config.js:11` `fs.mkdtempSync(os.tmpdir()/milestones-e2e-)` per `playwright test` invocation → throwaway DB. `test:e2e` runs 4 separate invocations (`unlock`, `add-milestone`, `timeline-scroll`, `routing`) to keep isolation. `devices['Pixel 5']`, `BASE_URL http://127.0.0.1:4173`, `webServer.url http://127.0.0.1:4173/api/salt`.
-- **Known Playwright webServer hang**: On WSL2 `127.0.0.1:<port>` with no listener hangs (SYN dropped, `curl 127.0.0.1:4173` hangs, `::1:4173` `ECONNREFUSED` fast, `ping 127.0.0.1` ok). `isURLAvailable`/`isPortUsed` (`playwright-core/lib/coreBundle.js:8514` `httpHappyEyeballsAgent`, `NET_DEFAULT_TIMEOUT 30s`) then hangs >30 s, `raceAgainstDeadline` 20 s never fires → `DEBUG=pw:webserver` only `HTTP GET: http://127.0.0.1:4173/` then `exit 124`. Workaround: start server externally + `reuseExistingServer:true` or manual config `playwright.config.manual.js` (no `webServer`) → `PORT=4173 DB_PATH=/tmp/e2e-manual.db node server/index.js &` then `playwright test --config=playwright.config.manual.js` passes in ~400 ms (verified `dummy` 453 ms, `isAlreadyAvailable` fast when server listening). Fix candidates: `BASE_URL http://[::1]:4173` (IPv6 only), `webServer.port` vs `url`, or `globalSetup` spawner. Do not use `testDir:/tmp` (snap `EACCES: scandir '/tmp/snap-private-tmp'`).
-- **E2E video coverage**: `add-milestone.spec.js` image + video (expects `milestone-video` `controls`, no `milestone-photo`), `timeline-scroll.spec.js` seeds 4 mixed `MIMES` `[image/png,video/mp4,image/jpeg,video/mp4]` asserts `milestone-photo`/`milestone-video` counts, `unlock.spec.js`/`routing.spec.js` use `media-input.or(photo-input)`.
+- **Unit**: `pnpm test` → `node --test server/ public/` (`server/server.test.js`,
+  8 tests: config, round-trip, defaults, ordering, validation, deletes).
+- **E2E**: currently BROKEN (debt #3). Specs still import the removed
+  `public/crypto.js` and use pre-picker selectors. `playwright.config.js` per-run
+  `fs.mkdtempSync` throwaway DB is retained; webServer healthcheck now
+  `/api/config`.
+- **Known Playwright webServer hang**: On WSL2 `127.0.0.1:<port>` with no listener
+  hangs. Workaround: start the server externally and use
+  `playwright.config.manual.js` (`PORT=4173 DB_PATH=/tmp/e2e-manual.db node server/index.js &`).
+  Do not use `testDir:/tmp`.
 
 ## Commands
 - `pnpm test` — unit
-- `pnpm test:e2e` — 4× `playwright test` (isolated DB)
-- `pnpm e2e` — alias `playwright test` (single invocation, shared DB, use for manual server)
-- `rm -f data/milestones.db* && pnpm test && pnpm test:e2e` for full verify after schema change
+- `pnpm start` — server (`MS_CLIENT_ID=… pnpm start`)
+- `pnpm test:e2e` / `pnpm e2e` — E2E (broken until rewritten)
 
 ## Constraints
 - No dates anywhere, no `created_at`.
-- Server never logs bodies, only ciphertext.
-- Keep `photo-input` alias until all e2e migrated to `media-input`.
+- Server never logs request bodies.
+- Keep the picker message-flow id convention and consumer pivots as documented;
+  regressions here are hard to debug.

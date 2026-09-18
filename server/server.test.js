@@ -29,39 +29,36 @@ function startTestServer() {
   });
 }
 
-test('GET /api/salt generates a salt on first call and persists it', async () => {
+function makePayload(label) {
+  return {
+    title: `title-${label}`,
+    subtitle: `subtitle-${label}`,
+    drive_item_id: `item-${label}`,
+    drive_id: `drive-${label}`,
+    media_mime: 'image/jpeg',
+    item_name: `${label}.jpg`,
+  };
+}
+
+test('GET /api/config returns clientId and consumer authority', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    const first = await fetch(`${baseUrl}/api/salt`);
-    assert.equal(first.status, 200);
-    const firstBody = await first.json();
-    assert.equal(typeof firstBody.salt, 'string');
-    assert.ok(firstBody.salt.length > 0);
-
-    const second = await fetch(`${baseUrl}/api/salt`);
-    const secondBody = await second.json();
-
-    assert.equal(secondBody.salt, firstBody.salt);
+    const response = await fetch(`${baseUrl}/api/config`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.ok(body.clientId === null || typeof body.clientId === 'string');
+    assert.equal(body.authority, 'https://login.microsoftonline.com/consumers');
   } finally {
     await close();
   }
 });
 
-test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext (list omits media_ct/iv, thumb null)', async () => {
+test('POST /api/milestones then GET /api/milestones round-trips a Graph reference', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    const payload = {
-      title_ct: 'ZmFrZS1jaXBoZXJ0ZXh0',
-      title_iv: 'ZmFrZS1pdg==',
-      subtitle_ct: 'ZmFrZS1zdWJ0aXRsZS1jaXBoZXJ0ZXh0',
-      subtitle_iv: 'ZmFrZS1zdWJ0aXRsZS1pdg==',
-      media_ct: 'ZmFrZS1waG90by1jaXBoZXJ0ZXh0',
-      media_iv: 'ZmFrZS1waG90by1pdg==',
-      media_mime: 'image/jpeg',
-    };
-
+    const payload = makePayload('first');
     const postResponse = await fetch(`${baseUrl}/api/milestones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -78,43 +75,46 @@ test('POST /api/milestones then GET /api/milestones round-trips fake ciphertext 
 
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, postBody.id);
-    assert.equal(rows[0].title_ct, payload.title_ct);
-    assert.equal(rows[0].title_iv, payload.title_iv);
-    assert.equal(rows[0].subtitle_ct, payload.subtitle_ct);
-    assert.equal(rows[0].subtitle_iv, payload.subtitle_iv);
-    assert.equal(rows[0].media_ct, undefined);
-    assert.equal(rows[0].media_iv, undefined);
+    assert.equal(rows[0].title, payload.title);
+    assert.equal(rows[0].subtitle, payload.subtitle);
+    assert.equal(rows[0].drive_item_id, payload.drive_item_id);
+    assert.equal(rows[0].drive_id, payload.drive_id);
     assert.equal(rows[0].media_mime, payload.media_mime);
-    assert.equal(rows[0].thumb_ct, null);
-    assert.equal(rows[0].thumb_iv, null);
-    assert.equal(rows[0].thumb_mime, null);
-
-    // Media is still available via dedicated endpoint
-    const mediaRes = await fetch(`${baseUrl}/api/milestones/${postBody.id}/media`);
-    assert.equal(mediaRes.status, 200);
-    const mediaRow = await mediaRes.json();
-    assert.equal(mediaRow.media_ct, payload.media_ct);
-    assert.equal(mediaRow.media_iv, payload.media_iv);
-    assert.equal(mediaRow.media_mime, payload.media_mime);
+    assert.equal(rows[0].item_name, payload.item_name);
+    assert.equal(rows[0].created_at, undefined);
   } finally {
     await close();
   }
 });
 
-test('GET /api/milestones returns entries ordered oldest first (by upload/insertion order)', async () => {
+test('POST defaults subtitle to empty string and optional refs to null', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    const makePayload = (label) => ({
-      title_ct: `title-ct-${label}`,
-      title_iv: `title-iv-${label}`,
-      subtitle_ct: `subtitle-ct-${label}`,
-      subtitle_iv: `subtitle-iv-${label}`,
-      media_ct: `media-ct-${label}`,
-      media_iv: `media-iv-${label}`,
-      media_mime: 'image/jpeg',
+    const response = await fetch(`${baseUrl}/api/milestones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Only title',
+        drive_item_id: 'item-1',
+        media_mime: 'video/mp4',
+      }),
     });
+    assert.equal(response.status, 201);
 
+    const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
+    assert.equal(rows[0].subtitle, '');
+    assert.equal(rows[0].drive_id, null);
+    assert.equal(rows[0].item_name, null);
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/milestones returns entries ordered oldest first', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
     for (const label of ['first', 'second', 'third']) {
       const response = await fetch(`${baseUrl}/api/milestones`, {
         method: 'POST',
@@ -124,348 +124,67 @@ test('GET /api/milestones returns entries ordered oldest first (by upload/insert
       assert.equal(response.status, 201);
     }
 
-    const getResponse = await fetch(`${baseUrl}/api/milestones`);
-    const rows = await getResponse.json();
-
+    const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
     assert.equal(rows.length, 3);
-    assert.equal(rows[0].title_ct, 'title-ct-first');
-    assert.equal(rows[1].title_ct, 'title-ct-second');
-    assert.equal(rows[2].title_ct, 'title-ct-third');
+    assert.equal(rows[0].title, 'title-first');
+    assert.equal(rows[1].title, 'title-second');
+    assert.equal(rows[2].title, 'title-third');
     assert.ok(rows[0].id < rows[1].id);
     assert.ok(rows[1].id < rows[2].id);
-    assert.equal(rows[0].created_at, undefined);
-    // New V1: list omits media_ct/iv but includes thumb null
-    assert.equal(rows[0].media_ct, undefined);
-    assert.equal(rows[0].thumb_ct, null);
   } finally {
     await close();
   }
 });
 
-test('POST /api/milestones with thumb round-trips and GET list returns thumb but not media', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'image/jpeg',
-      thumb_ct: 'thumbct',
-      thumb_iv: 'thumbiv',
-      thumb_mime: 'image/jpeg',
-    };
-    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(postResponse.status, 201);
-    const { id } = await postResponse.json();
-
-    const getResponse = await fetch(`${baseUrl}/api/milestones`);
-    const rows = await getResponse.json();
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].id, id);
-    assert.equal(rows[0].thumb_ct, payload.thumb_ct);
-    assert.equal(rows[0].thumb_iv, payload.thumb_iv);
-    assert.equal(rows[0].thumb_mime, payload.thumb_mime);
-    assert.equal(rows[0].media_ct, undefined);
-    assert.equal(rows[0].media_mime, 'image/jpeg');
-
-    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
-    assert.equal(mediaRes.status, 200);
-    const mediaRow = await mediaRes.json();
-    assert.equal(mediaRow.media_ct, payload.media_ct);
-  } finally {
-    await close();
-  }
-});
-
-test('POST without thumb succeeds, GET list thumb null, GET /:id/media still returns media', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'video/mp4',
-    };
-    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(postResponse.status, 201);
-    const { id } = await postResponse.json();
-    const getResponse = await fetch(`${baseUrl}/api/milestones`);
-    const rows = await getResponse.json();
-    assert.equal(rows[0].thumb_ct, null);
-    assert.equal(rows[0].thumb_mime, null);
-    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
-    assert.equal(mediaRes.status, 200);
-    const mediaRow = await mediaRes.json();
-    assert.equal(mediaRow.media_mime, 'video/mp4');
-  } finally {
-    await close();
-  }
-});
-
-test('GET /api/milestones/:id/media returns 400 for bad id, 404 for missing', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    for (const bad of ['abc', '0', '-1', '1.5']) {
-      const res = await fetch(`${baseUrl}/api/milestones/${bad}/media`);
-      assert.equal(res.status, 400, `expected 400 for id=${bad}`);
-    }
-    const res404 = await fetch(`${baseUrl}/api/milestones/9999/media`);
-    assert.equal(res404.status, 404);
-  } finally {
-    await close();
-  }
-});
-
-test('POST /api/milestones rejects payloads missing required ciphertext fields', async () => {
+test('POST /api/milestones rejects a payload missing required fields', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
     const response = await fetch(`${baseUrl}/api/milestones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'plaintext should never be accepted' }),
+      body: JSON.stringify({ title: 'missing refs' }),
     });
 
     assert.equal(response.status, 400);
     const body = await response.json();
     assert.equal(typeof body.error, 'string');
 
-    const getResponse = await fetch(`${baseUrl}/api/milestones`);
-    const rows = await getResponse.json();
+    const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
     assert.equal(rows.length, 0);
   } finally {
     await close();
   }
 });
 
-test('POST /api/milestones with media_mime video/mp4 round-trips (via media endpoint)', async () => {
+test('DELETE /api/milestones/:id deletes a single milestone', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'video/mp4',
-    };
-    const postResponse = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(postResponse.status, 201);
-    const { id } = await postResponse.json();
-    const getResponse = await fetch(`${baseUrl}/api/milestones`);
-    const rows = await getResponse.json();
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].media_mime, 'video/mp4');
-    assert.equal(rows[0].media_ct, undefined);
-    const mediaRes = await fetch(`${baseUrl}/api/milestones/${id}/media`);
-    assert.equal(mediaRes.status, 200);
-    const mediaRow = await mediaRes.json();
-    assert.equal(mediaRow.media_ct, payload.media_ct);
-  } finally {
-    await close();
-  }
-});
+    const create = (label) =>
+      fetch(`${baseUrl}/api/milestones`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makePayload(label)),
+      });
 
-test('POST /api/milestones rejects disallowed mime types like video/webm', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'video/webm',
-    };
-    const response = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(response.status, 400);
-    const body = await response.json();
-    assert.equal(typeof body.error, 'string');
-    assert.match(body.error, /media_mime/);
-  } finally {
-    await close();
-  }
-});
-
-test('POST /api/milestones rejects application/octet-stream mime', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'application/octet-stream',
-    };
-    const response = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(response.status, 400);
-  } finally {
-    await close();
-  }
-});
-
-test('POST /api/milestones rejects thumb with non-image mime', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'image/jpeg',
-      thumb_ct: 'tct',
-      thumb_iv: 'tiv',
-      thumb_mime: 'video/mp4',
-    };
-    const response = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(response.status, 400);
-    const body = await response.json();
-    assert.match(body.error, /thumb_mime/);
-  } finally {
-    await close();
-  }
-});
-
-test('POST /api/milestones rejects partial thumb fields', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'image/jpeg',
-      thumb_ct: 'only-ct',
-    };
-    const response = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(response.status, 400);
-  } finally {
-    await close();
-  }
-});
-
-test('DELETE /api/milestones/:id deletes single milestone and preserves order', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const first = {
-      title_ct: 'tct-first',
-      title_iv: 'tiv-first',
-      subtitle_ct: 'sct-first',
-      subtitle_iv: 'siv-first',
-      media_ct: 'mct-first',
-      media_iv: 'miv-first',
-      media_mime: 'image/jpeg',
-    };
-    const second = {
-      title_ct: 'tct-second',
-      title_iv: 'tiv-second',
-      subtitle_ct: 'sct-second',
-      subtitle_iv: 'siv-second',
-      media_ct: 'mct-second',
-      media_iv: 'miv-second',
-      media_mime: 'video/mp4',
-    };
-
-    const r1 = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(first),
-    });
-    assert.equal(r1.status, 201);
-    const { id: id1 } = await r1.json();
-
-    const r2 = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(second),
-    });
-    assert.equal(r2.status, 201);
-    const { id: id2 } = await r2.json();
-
-    let get = await fetch(`${baseUrl}/api/milestones`);
-    let rows = await get.json();
-    assert.equal(rows.length, 2);
+    const { id: id1 } = await (await create('first')).json();
+    const { id: id2 } = await (await create('second')).json();
 
     const del = await fetch(`${baseUrl}/api/milestones/${id1}`, { method: 'DELETE' });
     assert.equal(del.status, 200);
-    const delBody = await del.json();
-    assert.equal(delBody.ok, true);
+    assert.equal((await del.json()).ok, true);
 
-    get = await fetch(`${baseUrl}/api/milestones`);
-    rows = await get.json();
+    const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, id2);
-    assert.equal(rows[0].title_ct, second.title_ct);
+    assert.equal(rows[0].title, 'title-second');
   } finally {
     await close();
   }
 });
 
-test('DELETE /api/milestones/:id returns 404 for missing id', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const res = await fetch(`${baseUrl}/api/milestones/9999`, { method: 'DELETE' });
-    assert.equal(res.status, 404);
-    const body = await res.json();
-    assert.equal(typeof body.error, 'string');
-  } finally {
-    await close();
-  }
-});
-
-test('DELETE /api/milestones/:id returns 400 for non-numeric id', async () => {
+test('DELETE /api/milestones/:id returns 400 for bad id and 404 for missing', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
@@ -473,77 +192,37 @@ test('DELETE /api/milestones/:id returns 400 for non-numeric id', async () => {
       const res = await fetch(`${baseUrl}/api/milestones/${bad}`, { method: 'DELETE' });
       assert.equal(res.status, 400, `expected 400 for id=${bad}`);
     }
+
+    const missing = await fetch(`${baseUrl}/api/milestones/9999`, { method: 'DELETE' });
+    assert.equal(missing.status, 404);
   } finally {
     await close();
   }
 });
 
-test('DELETE /api/milestones/:id is idempotent — second delete 404', async () => {
+test('DELETE /api/milestones bulk truncates and resets ids', async () => {
   const { baseUrl, close } = await startTestServer();
 
   try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'image/jpeg',
-    };
-    const post = await fetch(`${baseUrl}/api/milestones`, {
+    await fetch(`${baseUrl}/api/milestones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(makePayload('first')),
     });
-    assert.equal(post.status, 201);
-    const { id } = await post.json();
-
-    const first = await fetch(`${baseUrl}/api/milestones/${id}`, { method: 'DELETE' });
-    assert.equal(first.status, 200);
-
-    const second = await fetch(`${baseUrl}/api/milestones/${id}`, { method: 'DELETE' });
-    assert.equal(second.status, 404);
-  } finally {
-    await close();
-  }
-});
-
-test('DELETE /api/milestones bulk still truncates and resets sqlite_sequence', async () => {
-  const { baseUrl, close } = await startTestServer();
-
-  try {
-    const payload = {
-      title_ct: 'tct',
-      title_iv: 'tiv',
-      subtitle_ct: 'sct',
-      subtitle_iv: 'siv',
-      media_ct: 'mct',
-      media_iv: 'miv',
-      media_mime: 'image/jpeg',
-    };
-    const post = await fetch(`${baseUrl}/api/milestones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    assert.equal(post.status, 201);
 
     const delBulk = await fetch(`${baseUrl}/api/milestones`, { method: 'DELETE' });
     assert.equal(delBulk.status, 200);
 
-    let get = await fetch(`${baseUrl}/api/milestones`);
-    let rows = await get.json();
+    const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
     assert.equal(rows.length, 0);
 
     const post2 = await fetch(`${baseUrl}/api/milestones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(makePayload('again')),
     });
     assert.equal(post2.status, 201);
-    const { id } = await post2.json();
-    assert.equal(id, 1);
+    assert.equal((await post2.json()).id, 1);
   } finally {
     await close();
   }

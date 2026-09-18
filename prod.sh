@@ -12,6 +12,8 @@ pnpm install --prod --os=android || pnpm install --prod || pnpm install
 export NODE_ENV=production
 export PORT=${PORT:-3001}
 export DB_PATH=${DB_PATH:-data/milestones.db}
+export MS_CLIENT_ID=${MS_CLIENT_ID:-f825bf3d-364e-4780-94d5-9651c72a61a8}
+export MS_AUTHORITY=${MS_AUTHORITY:-https://login.microsoftonline.com/consumers}
 
 mkdir -p data backup
 
@@ -26,6 +28,7 @@ if [ -f "$DB_PATH" ]; then
 fi
 
 echo "Starting mem-alice on PORT=$PORT DB_PATH=$DB_PATH NODE_ENV=$NODE_ENV"
+echo "MS_CLIENT_ID=$MS_CLIENT_ID MS_AUTHORITY=$MS_AUTHORITY"
 echo "Tunnel should map alice.termux.bombos.online -> http://localhost:$PORT"
 echo "If you run both apps, keep bombos2 on 3000 and mem-alice on 3001."
 
