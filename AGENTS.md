@@ -6,6 +6,10 @@
   media upload.
 - Full handoff + protocol/debug notes: `docs/onedrive-picker-poc.md` — read it
   before touching `public/` or the schema.
+- Known gaps / corners cut: `docs/onedrive-poc-debt.md` — read before expanding
+  scope.
+- Consumer (personal Microsoft accounts) only; business/SharePoint is out of
+  scope by design.
 - DB `server/db.js` `milestones` ordered by `id ASC` (no dates anywhere).
 
 ## Schema & API
