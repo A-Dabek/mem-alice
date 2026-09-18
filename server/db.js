@@ -32,6 +32,7 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       subtitle TEXT NOT NULL DEFAULT '',
       drive_item_id TEXT NOT NULL,
       drive_id TEXT,
+      drive_endpoint TEXT,
       media_mime TEXT NOT NULL,
       item_name TEXT
     );

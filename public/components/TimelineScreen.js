@@ -2,7 +2,7 @@ import { h } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { resolveItem, getThumbnailUrl } from '../graph.js';
+import { resolveItem, getThumbnailUrl } from '../onedrive.js';
 
 const html = htm.bind(h);
 
@@ -73,8 +73,8 @@ export function TimelineScreen({ onAddMilestone }) {
     setResolved((prev) => ({ ...prev, [id]: { status: 'loading' } }));
 
     Promise.all([
-      resolveItem(milestone.drive_item_id, milestone.drive_id),
-      getThumbnailUrl(milestone.drive_item_id, milestone.drive_id),
+      resolveItem(milestone.drive_item_id, milestone.drive_id, milestone.drive_endpoint),
+      getThumbnailUrl(milestone.drive_item_id, milestone.drive_id, milestone.drive_endpoint),
     ])
       .then(([item, thumbUrl]) => {
         setResolved((prev) => ({

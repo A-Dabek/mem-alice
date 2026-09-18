@@ -35,6 +35,7 @@ function makePayload(label) {
     subtitle: `subtitle-${label}`,
     drive_item_id: `item-${label}`,
     drive_id: `drive-${label}`,
+    drive_endpoint: 'https://api.onedrive.com/v1.0',
     media_mime: 'image/jpeg',
     item_name: `${label}.jpg`,
   };
@@ -79,6 +80,7 @@ test('POST /api/milestones then GET /api/milestones round-trips a Graph referenc
     assert.equal(rows[0].subtitle, payload.subtitle);
     assert.equal(rows[0].drive_item_id, payload.drive_item_id);
     assert.equal(rows[0].drive_id, payload.drive_id);
+    assert.equal(rows[0].drive_endpoint, payload.drive_endpoint);
     assert.equal(rows[0].media_mime, payload.media_mime);
     assert.equal(rows[0].item_name, payload.item_name);
     assert.equal(rows[0].created_at, undefined);
@@ -105,6 +107,7 @@ test('POST defaults subtitle to empty string and optional refs to null', async (
     const rows = await (await fetch(`${baseUrl}/api/milestones`)).json();
     assert.equal(rows[0].subtitle, '');
     assert.equal(rows[0].drive_id, null);
+    assert.equal(rows[0].drive_endpoint, null);
     assert.equal(rows[0].item_name, null);
   } finally {
     await close();

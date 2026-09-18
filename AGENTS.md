@@ -10,10 +10,10 @@
 
 ## Schema & API
 - `milestones(id, title, subtitle DEFAULT '', drive_item_id NOT NULL, drive_id,
-  media_mime NOT NULL, item_name)`. No `config` table, no migrations. After a
-  schema change devs MUST `rm -f data/milestones.db*`.
+  drive_endpoint, media_mime NOT NULL, item_name)`. No `config` table, no
+  migrations. After a schema change devs MUST `rm -f data/milestones.db*`.
 - `server/routes/milestones.js`: `GET /` (oldest first), `POST /`
-  `{title,subtitle?,drive_item_id,drive_id?,media_mime,item_name?}`,
+  `{title,subtitle?,drive_item_id,drive_id?,drive_endpoint?,media_mime,item_name?}`,
   `DELETE /:id`, bulk `DELETE /`. No auth/MIME allowlist yet.
 - `server/index.js`: `GET /api/config` → `{clientId: MS_CLIENT_ID, authority}`,
   default `express.json()`, no-cache static. Server never calls Graph and never
@@ -32,11 +32,14 @@
   `message.data.id`) or the picker throws `acknowledgeTimeout`. Ignore
   `command.resource` for consumer (requesting `${resource}/.default` fails with
   `AADSTS9002332`).
-- `public/graph.js` — `resolveItem`/`getThumbnailUrl`. Currently a picked item
-  returns 401 (see handoff doc "Known issue").
+- `public/onedrive.js` — `resolveItem`/`getThumbnailUrl` against the picked
+  item's `@sharePoint.endpoint` (persisted as `drive_endpoint`) using the
+  `OneDrive.ReadOnly` picker token; reads `@content.downloadUrl`. Do NOT call
+  `graph.microsoft.com` for consumer items: Graph returns
+  `InvalidAuthenticationToken: The token could not be read`.
 - `app.js` → `SignInScreen` when signed out, else `AddMilestoneScreen`/`TimelineScreen`.
-- Add uses the picker + Graph preview and POSTs the reference. Timeline resolves
-  thumbnails lazily; broken item → placeholder; delete modal retained.
+- Add uses the picker + OneDrive API preview and POSTs the reference. Timeline
+  resolves thumbnails lazily; broken item → placeholder; delete modal retained.
 
 ## Environment
 - Sign-in is disabled without a client id:

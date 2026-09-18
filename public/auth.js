@@ -6,8 +6,9 @@
  * no client id is hard-coded in the bundle.
  *
  * Two token audiences are needed:
- *  - Graph (`Files.Read`) to resolve picked items / download urls / thumbnails.
- *  - OneDrive (`OneDrive.ReadOnly`) to hand the picker a token it understands.
+ *  - Graph (`Files.Read`) only to complete the sign-in consent flow.
+ *  - OneDrive (`OneDrive.ReadOnly`) to hand the picker a token and to resolve
+ *    picked items through the `@sharePoint.endpoint` the picker returns.
  */
 
 const GRAPH_SCOPES = ['Files.Read'];
@@ -133,13 +134,8 @@ async function acquireScopes(scopes) {
   }
 }
 
-/** @returns {Promise<string>} token for Microsoft Graph. */
-export function getGraphToken() {
-  return acquireScopes(GRAPH_SCOPES);
-}
-
 /**
- * Acquires a token for the OneDrive picker.
+ * Acquires a token for the OneDrive picker and item resolution.
  *
  * `OneDrive.ReadOnly` targets a different resource than the Graph token used
  * for sign-in, so personal (MSA) accounts may require an interactive consent

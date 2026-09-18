@@ -4,7 +4,7 @@ import { logger } from '../logger.js';
 const REQUIRED_FIELDS = ['title', 'drive_item_id', 'media_mime'];
 
 const LIST_COLUMNS =
-  'id, title, subtitle, drive_item_id, drive_id, media_mime, item_name';
+  'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, item_name';
 
 /**
  * Validates the milestone payload. No auth or MIME allowlist yet (PoC) - just
@@ -24,7 +24,7 @@ function validateMilestonePayload(body) {
     }
   }
 
-  for (const field of ['subtitle', 'drive_id', 'item_name']) {
+  for (const field of ['subtitle', 'drive_id', 'drive_endpoint', 'item_name']) {
     if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string') {
       return `Field "${field}" must be a string`;
     }
@@ -51,8 +51,8 @@ export function createMilestonesRouter(db) {
     `SELECT ${LIST_COLUMNS} FROM milestones ORDER BY id ASC`
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title, subtitle, drive_item_id, drive_id, media_mime, item_name)
-     VALUES (@title, @subtitle, @drive_item_id, @drive_id, @media_mime, @item_name)`
+    `INSERT INTO milestones (title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, item_name)
+     VALUES (@title, @subtitle, @drive_item_id, @drive_id, @drive_endpoint, @media_mime, @item_name)`
   );
   const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
 
@@ -74,6 +74,7 @@ export function createMilestonesRouter(db) {
       subtitle = '',
       drive_item_id,
       drive_id = null,
+      drive_endpoint = null,
       media_mime,
       item_name = null,
     } = req.body;
@@ -83,6 +84,7 @@ export function createMilestonesRouter(db) {
       subtitle,
       drive_item_id,
       drive_id,
+      drive_endpoint,
       media_mime,
       item_name,
     });

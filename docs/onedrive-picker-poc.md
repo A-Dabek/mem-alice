@@ -1,8 +1,9 @@
 # OneDrive File Picker PoC — Handoff
 
-Status: **PoC working up to picking.** The picker authenticates, lists files and
-lets the user select one. **Known blocker: picking returns HTTP 401** (see
-[Known issue](#known-issue-401-when-picking)).
+Status: **PoC working end to end.** The picker authenticates, lists files, lets
+the user select one, and the picked item is resolved through the OneDrive API
+using the picker's own token + `@sharePoint.endpoint` (see
+[Picked item resolution](#picked-item-resolution-why-not-graph)).
 
 This document replaces the previous E2E-encrypted design. Read it before
 touching the server or `public/`.
@@ -24,7 +25,7 @@ Added:
 
 - `public/auth.js` — MSAL (CDN) sign-in + tokens
 - `public/picker.js` — OneDrive File Picker v8 handshake
-- `public/graph.js` — Graph item/thumbnail resolution (unused until 401 fixed)
+- `public/onedrive.js` — OneDrive API item/thumbnail resolution
 - `public/components/SignInScreen.js`
 
 Rewritten: `public/app.js`, `AddMilestoneScreen.js`, `TimelineScreen.js`,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS milestones (
   subtitle TEXT NOT NULL DEFAULT '',
   drive_item_id TEXT NOT NULL,
   drive_id TEXT,
+  drive_endpoint TEXT,
   media_mime TEXT NOT NULL,
   item_name TEXT
 );
@@ -54,7 +56,7 @@ No dates, no `config` table, no migrations. After pulling, delete the old DB
 
 - `GET /api/config` → `{ clientId: process.env.MS_CLIENT_ID ?? null, authority: process.env.MS_AUTHORITY || 'https://login.microsoftonline.com/consumers' }`
 - `GET /api/milestones` → list, oldest first (`ORDER BY id ASC`)
-- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, media_mime, item_name? }`
+- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, drive_endpoint?, media_mime, item_name? }`
 - `DELETE /api/milestones/:id`
 - `DELETE /api/milestones` → bulk truncate (test/e2e isolation helper)
 
@@ -124,9 +126,9 @@ Options:
 ```
 
 Handshake: `initialize` → grab `event.ports[0]` → `activate`; on the port handle
-`authenticate` → `result/token`, `pick` → resolve `{ id, driveId }`, `close` →
-reject `CANCELLED`. The form is POSTed to `${baseUrl}?filePicker=…` with a hidden
-`access_token`.
+`authenticate` → `result/token`, `pick` → resolve `{ id, driveId, endpoint }`,
+`close` → reject `CANCELLED`. The form is POSTed to `${baseUrl}?filePicker=…` with
+a hidden `access_token`.
 
 **Critical protocol detail:** command responses must use the **top-level** id
 (`message.id`), not `message.data.id`. The message shape is
@@ -134,44 +136,55 @@ reject `CANCELLED`. The form is POSTed to `${baseUrl}?filePicker=…` with a hid
 the nested id sends `undefined` and the picker reports `acknowledgeTimeout`
 (everything then times out).
 
-### `public/graph.js` (currently blocked)
+### `public/onedrive.js`
 
-`resolveItem(id, driveId)` → `GET /me/drive/items/{id}?$select=id,name,file,image,video,parentReference`
-and reads `@microsoft.graph.downloadUrl`; `getThumbnailUrl` uses `/thumbnails`
-(`thumbnails[0].medium.url`). Returns `{ id, name, mime, downloadUrl, driveId }`.
+`resolveItem(id, driveId, endpoint, token)` →
+`GET {endpoint}/drives/{driveId}/items/{id}` and reads `@content.downloadUrl`;
+`getThumbnailUrl` uses `/thumbnails` (`value[0].medium.url`). Returns
+`{ id, name, mime, downloadUrl, driveId }`. `endpoint` is the pick payload's
+`@sharePoint.endpoint`; the request is authorised with the **picker**
+(`OneDrive.ReadOnly`) token.
 
 ### Screens
 
 - `app.js`: signed-out → `SignInScreen`; signed-in → `#add` route or Timeline.
 - `AddMilestoneScreen.js`: "Wybierz z OneDrive" → `getPickerToken()` → `pickFile(token)`
-  → `resolveItem` → preview (`<img>`/`<video src=downloadUrl controls>`), title/subtitle,
-  `POST /api/milestones` with the reference. No file input, no thumbnails, no size limit.
-- `TimelineScreen.js`: list is plaintext title/subtitle; rows resolve via Graph
-  lazily with `IntersectionObserver`; click expands full `downloadUrl`; broken
-  item → placeholder; delete modal retained.
+  → `resolveItem(…, token)` → preview (`<img>`/`<video src=downloadUrl controls>`),
+  title/subtitle, `POST /api/milestones` with the reference. No file input, no
+  thumbnails, no size limit.
+- `TimelineScreen.js`: list is plaintext title/subtitle; rows resolve via the
+  OneDrive API lazily with `IntersectionObserver`; click expands full
+  `downloadUrl`; broken item → placeholder; delete modal retained.
 
 Test ids kept: `title-input`, `subtitle-input`, `save-button`, `add-error`,
 `signin-button`, `picker-button`, `media-preview`, `milestone-item`,
 `milestone-photo`, `milestone-video`, `milestone-thumb`, `delete-*`.
 
-## Known issue: 401 when picking
+## Picked item resolution: why not Graph
 
-After selecting a file, the follow-up Graph call returns **401**. The picker
-itself lists images fine; the failure is after `pick`, in `resolveItem`
-(`GET /me/drive/items/{id}`) or in `getGraphToken()`.
+An earlier revision resolved picked items from `https://graph.microsoft.com`
+with a `Files.Read` token. For personal (consumer) accounts that fails with:
 
-Suspects (in order):
+```json
+{ "error": { "code": "InvalidAuthenticationToken",
+  "message": "Protocol 'Bearer' failed to validate because The token could not be read." } }
+```
 
-1. Picked item id is an **api.onedrive.com** (consumer) id, not a Graph id, so
-   `/me/drive/items/{id}` 401s/404s. Use the pick payload's
-   `@sharepoint.endpoint` / `parentReference.driveId`, or the picker's
-   `commands.pick.select.urls.download = true` to get a download URL directly.
-2. Graph token audience/consent: the sign-in token is `Files.Read`; confirm it
-   is actually attached (`Authorization: Bearer …`) and not empty.
-3. The picker item may expose its own download URL in `command.items[0]` — inspect
-   the raw pick payload (log `command.items`) before adding more Graph calls.
+The consumer picker issues a token for the **OneDrive resource**
+(`https://api.onedrive.com`), not Graph. When acquired against the `/consumers`
+authority it is not a Graph-readable JWT, and Graph also expects a different
+download annotation. The picker docs spell out the supported flow:
 
-Debt #7 in the plan covers `@sharePoint.endpoint`/`driveId` resolution.
+1. The `pick` payload always carries `id`, `parentReference.driveId` and
+   `@sharePoint.endpoint`.
+2. Build `{@sharePoint.endpoint}/drives/{parentReference.driveId}/items/{id}`.
+3. Send **the same picker token** (`OneDrive.ReadOnly`).
+4. Read `@content.downloadUrl` (OneDrive API), not
+   `@microsoft.graph.downloadUrl` (Graph).
+
+`public/onedrive.js` implements exactly this; the picked `@sharePoint.endpoint`
+is persisted as `milestones.drive_endpoint` so the Timeline can resolve rows
+after reload. This retires debt #7.
 
 ## Debugging notes / errors already hit
 
@@ -181,6 +194,7 @@ Debt #7 in the plan covers `@sharePoint.endpoint`/`driveId` resolution.
 | `AADSTS70000 invalid_grant` | silent request for `OneDrive.ReadOnly` before consent | acquire picker token interactively before opening the picker |
 | `empty_window_error` / `popup_window_error` | interactive popup from inside picker flow | only `trySilentPickerToken()` in the handler |
 | `AADSTS9002332` "do not use /consumers" | requesting `${resource}/.default` (`https://api.onedrive.com`) | ignore `command.resource`; return `OneDrive.ReadOnly` |
+| `InvalidAuthenticationToken` "token could not be read" | Graph called with the consumer picker token | resolve via `@sharePoint.endpoint` + picker token (`public/onedrive.js`) |
 | `acknowledgeTimeout` / `ApiError: Timed out` | response ids used `message.data.id` | use `message.id` |
 | business pivots (Shared/Groups) fail on personal | `pivots` omitted → business defaults | `pivots: { oneDrive: true, recent: true }` |
 
@@ -195,18 +209,17 @@ MS_CLIENT_ID=<app-id> pnpm start # http://localhost:3000
 pnpm test                        # 8/8 unit tests
 ```
 
-Browser: sign in → pick photo/mp4 → (401 currently) → Timeline renders stored
-rows → delete works.
+Browser: sign in → pick photo/mp4 → preview renders → Timeline renders stored
+rows (thumbnail + click-to-expand) → delete works.
 
 ## Debt carried
 
 Server-side ID-token + email guard (#1–2), E2E rewrite (#3, specs still import
 the removed `public/crypto.js` and use old selectors — `pnpm e2e` is expected to
 fail), thumbnail caching (#4), robust expiry/deleted-item states (#5, #11),
-server MIME allowlist (#6), `@sharePoint.endpoint`/`driveId` resolution (#7),
-migration (#8), redirect fallback + mobile (#9), sign-out/account switching
-(#10), prod HTTPS redirect (#11), broader media types (#12), full test coverage
-(#13), CSRF (#14).
+server MIME allowlist (#6), migration (#8), redirect fallback + mobile (#9),
+sign-out/account switching (#10), prod HTTPS redirect (#11), broader media
+types (#12), full test coverage (#13), CSRF (#14).
 
 `playwright.config.js`'s webServer healthcheck was repointed from `/api/salt`
 to `/api/config`.

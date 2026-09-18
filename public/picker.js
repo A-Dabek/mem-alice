@@ -34,7 +34,7 @@ function uuid() {
  *
  * @param {string} token - a OneDrive picker token, acquired BEFORE opening the
  *   window so any interactive consent popup is the first popup (not blocked).
- * @returns {Promise<{ id: string, driveId: string | null }>}
+ * @returns {Promise<{ id: string, driveId: string | null, endpoint: string | null }>}
  */
 export function pickFile(token) {
   return new Promise((resolve, reject) => {
@@ -158,6 +158,7 @@ export function pickFile(token) {
           finish(resolve, {
             id: item.id,
             driveId: item.driveId || item.parentReference?.driveId || null,
+            endpoint: item['@sharePoint.endpoint'] || null,
           });
           break;
         }

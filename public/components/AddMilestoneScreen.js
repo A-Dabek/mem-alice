@@ -3,7 +3,7 @@ import { useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
 import { pickFile } from '../picker.js';
-import { resolveItem } from '../graph.js';
+import { resolveItem } from '../onedrive.js';
 import { getPickerToken } from '../auth.js';
 
 const html = htm.bind(h);
@@ -32,13 +32,13 @@ function inferMime(mime, name) {
  * Add Milestone screen (OneDrive picker PoC).
  *
  * Picks a photo/video straight from the user's OneDrive, resolves its
- * download URL + mime via Graph for the preview, and POSTs only the Graph
- * reference + title/subtitle to /api/milestones. No media is uploaded.
+ * download URL + mime via the OneDrive API for the preview, and POSTs only the
+ * item reference + title/subtitle to /api/milestones. No media is uploaded.
  *
  * @param {{ onSaved: () => void }} props
  */
 export function AddMilestoneScreen({ onSaved }) {
-  const [item, setItem] = useState(null); // { id, driveId, downloadUrl, name, mime }
+  const [item, setItem] = useState(null); // { id, driveId, endpoint, downloadUrl, name, mime }
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [error, setError] = useState('');
@@ -54,10 +54,16 @@ export function AddMilestoneScreen({ onSaved }) {
       // window, so the interactive consent popup is the first popup.
       const token = await getPickerToken();
       const picked = await pickFile(token);
-      const resolved = await resolveItem(picked.id, picked.driveId);
+      const resolved = await resolveItem(
+        picked.id,
+        picked.driveId,
+        picked.endpoint,
+        token
+      );
       setItem({
         id: picked.id,
         driveId: picked.driveId,
+        endpoint: picked.endpoint,
         downloadUrl: resolved.downloadUrl,
         name: resolved.name,
         mime: inferMime(resolved.mime, resolved.name),
@@ -104,6 +110,7 @@ export function AddMilestoneScreen({ onSaved }) {
           subtitle: subtitle.trim(),
           drive_item_id: item.id,
           drive_id: item.driveId,
+          drive_endpoint: item.endpoint,
           media_mime: item.mime,
           item_name: item.name,
         }),
