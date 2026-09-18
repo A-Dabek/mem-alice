@@ -140,7 +140,8 @@ the nested id sends `undefined` and the picker reports `acknowledgeTimeout`
 
 `resolveItem(id, driveId, endpoint, token)` →
 `GET {endpoint}/drives/{driveId}/items/{id}` and reads `@content.downloadUrl`;
-`getThumbnailUrl` uses `/thumbnails` (`value[0].medium.url`). Returns
+`getThumbnailUrl` uses `/thumbnails` (`value[0].large.url`, falling back to
+`medium`/`small`). Returns
 `{ id, name, mime, downloadUrl, driveId }`. `endpoint` is the pick payload's
 `@sharePoint.endpoint`; the request is authorised with the **picker**
 (`OneDrive.ReadOnly`) token.

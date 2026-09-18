@@ -95,7 +95,7 @@ export async function getThumbnailUrl(id, driveId, endpoint, token) {
     );
     const thumbnails = Array.isArray(value) ? value : [];
     const thumb = thumbnails[0];
-    return thumb?.medium?.url || thumb?.small?.url || null;
+    return thumb?.large?.url || thumb?.medium?.url || thumb?.small?.url || null;
   } catch {
     return null;
   }
