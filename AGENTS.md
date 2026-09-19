@@ -11,22 +11,27 @@
 - Execution plan / progress: `docs/onedrive-execution-plan.md`.
 - Consumer (personal Microsoft accounts) only; business/SharePoint is out of
   scope by design.
-- DB `server/db.js` `milestones` ordered by `id ASC` (no dates anywhere).
+- DB `server/db.js` `milestones` ordered by `position ASC, id ASC` (no dates
+  anywhere).
 
 ## Schema & API
 - `milestones(id, title, subtitle DEFAULT '', drive_item_id NOT NULL, drive_id,
-  drive_endpoint, media_mime NOT NULL, media_width, media_height, item_name)`.
-  No migrations; the app is pre-prod (DB migration strategy is deferred debt
-  #8), though `server/db.js` backfills the additive `media_width`/`media_height`
-  columns for pre-existing dev DBs.
+  drive_endpoint, media_mime NOT NULL, media_width, media_height, item_name,
+  position)`. No migrations; the app is pre-prod (DB migration strategy is
+  deferred debt #8), though `server/db.js` backfills the additive `media_width`/
+  `media_height`/`position` columns for pre-existing dev DBs (seeding `position`
+  from `id`).
 - `server/index.js` serves the vendored MSAL v4 ESM from
   `/vendor/msal-browser` + `/vendor/msal-common` (resolved from `node_modules`);
   `GET /api/config` → `{clientId, authority}` is public.
-- `server/routes/milestones.js`: `GET /` (oldest first), `POST /`
-  `{title,subtitle?,drive_item_id,drive_id?,drive_endpoint?,media_mime,media_width?,media_height?,item_name?}`,
-  `DELETE /:id`, bulk `DELETE /` (test helper). Validates a MIME allowlist
-  (`image/jpeg,png,gif,webp`, `video/mp4`), length caps, positive-integer media
-  dimensions, and re-checks the `drive_endpoint` host.
+- `server/routes/milestones.js`: `GET /` (position order), `POST /`
+  `{title,subtitle?,drive_item_id,drive_id?,drive_endpoint?,media_mime,media_width?,media_height?,item_name?}`
+  (appends last), `POST /:id/move` `{direction:'up'|'down'}`
+  (swaps with the adjacent row, returns the re-ordered list; 400 bad
+  id/direction, 404 unknown, edge no-op), `DELETE /:id`, bulk `DELETE /` (test
+  helper). Validates a MIME allowlist (`image/jpeg,png,gif,webp`, `video/mp4`),
+  length caps, positive-integer media dimensions, and re-checks the
+  `drive_endpoint` host.
 - `server/auth.js` verifies the SPA's ID token (OIDC discovery + `jose`
   RS256/JWKS, `aud === MS_CLIENT_ID`, `exp`, issuer), enforces `ALLOWED_EMAILS`,
   and checks `Origin` on mutations. Mounted on `/api/milestones`;
@@ -78,8 +83,18 @@
   fallback; thumbs `object-fit:cover`, expanded `contain`). Expanded photos keep
   the thumbnail as `src` and only swap to the full-resolution URL once it is
   preloaded (videos use `poster`), so expanding never flashes a blank box.
+  Edit mode (`edit-mode-toggle`, pencil/check, in the app header top-left next
+  to the account/logout) overlays circular controls on the
+  `.milestone-media-frame`: delete top-left, move up top-right, move down
+  bottom-right (`move-up-button`/`move-down-button`, disabled at the edges).
+  Move asks for confirmation in a delete-modal-styled dialog (`move-confirm`/
+  `move-cancel`) then `POST /:id/move` and replaces the list. Edit mode blocks
+  expansion (no load button, `isExpanded` forced false, expanded/full-media
+  cleared); Escape dismisses the open modal.
 - `app.js` → `SignInScreen` when signed out, else app shell (account +
-  "Wyloguj") with `AddMilestoneScreen` (`#add`) / `TimelineScreen`.
+  "Wyloguj", plus the timeline-only `edit-mode-toggle` in the header) with
+  `AddMilestoneScreen` (`#add`) / `TimelineScreen`. It owns `editMode` and
+  passes it to `TimelineScreen`.
 
 ## Environment
 - Copy `.env.example` → `.env` (gitignored) and fill it in. `pnpm start:env`
@@ -93,7 +108,7 @@
   active/ignored.
 
 ## Testing
-- **Unit**: `pnpm test` → `node --test server/ public/` (48 tests:
+- **Unit**: `pnpm test` → `node --test server/ public/` (52 tests:
   `server/server.test.js`, `server/auth.test.js`, `public/onedrive.test.js`,
   `public/onedriveCache.test.js`).
 - **E2E**: `pnpm test:e2e` (single `playwright test`). Specs use stubs in

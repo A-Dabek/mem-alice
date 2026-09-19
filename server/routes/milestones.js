@@ -4,7 +4,7 @@ import { logger } from '../logger.js';
 const REQUIRED_FIELDS = ['title', 'drive_item_id', 'media_mime'];
 
 const LIST_COLUMNS =
-  'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name';
+  'id, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name, position';
 
 const ALLOWED_MIME = new Set([
   'image/jpeg',
@@ -110,8 +110,8 @@ function validateMilestonePayload(body) {
  *
  * The server never talks to Graph and never sees media: it only stores the
  * references returned by the picker plus the plaintext title/subtitle. There
- * are no dates anywhere - milestones are ordered purely by insertion order
- * (autoincrementing id), oldest first.
+ * are no dates anywhere - milestones are ordered by a mutable `position`
+ * (oldest/append first, re-orderable via POST /:id/move).
  *
  * @param {import('better-sqlite3').Database} db
  * @returns {import('express').Router}
@@ -120,13 +120,27 @@ export function createMilestonesRouter(db) {
   const router = express.Router();
 
   const listStmt = db.prepare(
-    `SELECT ${LIST_COLUMNS} FROM milestones ORDER BY id ASC`
+    `SELECT ${LIST_COLUMNS} FROM milestones ORDER BY position ASC, id ASC`
   );
   const insertStmt = db.prepare(
-    `INSERT INTO milestones (title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name)
-     VALUES (@title, @subtitle, @drive_item_id, @drive_id, @drive_endpoint, @media_mime, @media_width, @media_height, @item_name)`
+    `INSERT INTO milestones (position, title, subtitle, drive_item_id, drive_id, drive_endpoint, media_mime, media_width, media_height, item_name)
+     VALUES ((SELECT COALESCE(MAX(position), 0) + 1 FROM milestones), @title, @subtitle, @drive_item_id, @drive_id, @drive_endpoint, @media_mime, @media_width, @media_height, @item_name)`
   );
   const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
+  const findByIdStmt = db.prepare('SELECT id, position FROM milestones WHERE id = ?');
+  const neighborStmt = {
+    up: db.prepare(
+      'SELECT id, position FROM milestones WHERE position < ? ORDER BY position DESC, id DESC LIMIT 1'
+    ),
+    down: db.prepare(
+      'SELECT id, position FROM milestones WHERE position > ? ORDER BY position ASC, id ASC LIMIT 1'
+    ),
+  };
+  const setPositionStmt = db.prepare('UPDATE milestones SET position = ? WHERE id = ?');
+  const swapTx = db.transaction((current, neighbor) => {
+    setPositionStmt.run(neighbor.position, current.id);
+    setPositionStmt.run(current.position, neighbor.id);
+  });
 
   router.get('/', (req, res) => {
     const rows = listStmt.all();
@@ -167,6 +181,34 @@ export function createMilestonesRouter(db) {
 
     logger.info('milestone added', { id: result.lastInsertRowid });
     res.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  router.post('/:id/move', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      logger.warn('error while moving milestone', { reason: 'invalid id' });
+      return res.status(400).json({ error: 'Invalid milestone id' });
+    }
+
+    const direction = req.body?.direction;
+    if (direction !== 'up' && direction !== 'down') {
+      logger.warn('error while moving milestone', { reason: 'invalid direction' });
+      return res.status(400).json({ error: 'Field "direction" must be "up" or "down"' });
+    }
+
+    const current = findByIdStmt.get(id);
+    if (!current) {
+      logger.warn('error while moving milestone', { reason: 'not found', id });
+      return res.status(404).json({ error: 'Milestone not found' });
+    }
+
+    const neighbor = neighborStmt[direction].get(current.position);
+    if (neighbor) {
+      swapTx(current, neighbor);
+      logger.info('milestone moved', { id, direction });
+    }
+
+    return res.json(listStmt.all());
   });
 
   router.delete('/:id', (req, res) => {

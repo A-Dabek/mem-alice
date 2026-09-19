@@ -9,8 +9,8 @@ the DB (see deferred #8).
 
 - **Migrations (#8).** No migrations; non-additive schema changes require
   recreating the dev DB (`server/db.js` backfills additive columns such as
-  `media_width`/`media_height`). Fine for pre-prod, must be solved before real
-  data exists.
+  `media_width`/`media_height`/`position` and seeds `position` from `id`). Fine
+  for pre-prod, must be solved before real data exists.
 - **Redirect fallback + mobile (#9).** Popup-only sign-in (`loginPopup`); no
   `loginRedirect`/`acquireTokenRedirect` fallback, so strict popup blockers or
   some in-app browsers fail. The file picker is no longer a popup — it is hosted
@@ -50,8 +50,8 @@ the DB (see deferred #8).
   `public/onedriveCache.test.js`, and the rewritten E2E suite.
 - **Sign-out / account switching (#10):** `signOut()` + app-shell "Wyloguj";
   cache cleared on sign-out.
-- **Full test coverage / E2E (#13):** `pnpm test` 48 unit tests; `pnpm test:e2e`
-  14 tests with stubbed auth/picker/OneDrive.
+- **Full test coverage / E2E (#13):** `pnpm test` 52 unit tests; `pnpm test:e2e`
+  20 tests with stubbed auth/picker/OneDrive (includes edit-mode/move ordering).
 - **CSRF (#14):** same-origin/allowlisted `Origin` required on mutations.
 - **Server-side ID-token + email guard (#1–2 broader):** `server/auth.js`
   verifies the ID token via OIDC discovery + `jose`, enforces `ALLOWED_EMAILS`,

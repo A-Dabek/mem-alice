@@ -13,7 +13,8 @@ const DEFAULT_DB_PATH = path.join(__dirname, '..', 'data', 'milestones.db');
  *
  * The server stores only Graph references + plaintext title/subtitle for the
  * PoC; media itself never leaves OneDrive. There are no dates anywhere -
- * milestones are ordered purely by insertion order (autoincrementing id).
+ * milestones carry a mutable `position` (seeded from insertion order) so the
+ * UI can re-order them.
  *
  * @param {string} [dbPath] - path to the sqlite file. Defaults to data/milestones.db.
  * @returns {import('better-sqlite3').Database}
@@ -36,7 +37,8 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       media_mime TEXT NOT NULL,
       media_width INTEGER,
       media_height INTEGER,
-      item_name TEXT
+      item_name TEXT,
+      position INTEGER
     );
   `);
 
@@ -45,11 +47,14 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
   const columns = new Set(
     db.prepare('PRAGMA table_info(milestones)').all().map((column) => column.name)
   );
-  for (const column of ['media_width', 'media_height']) {
+  for (const column of ['media_width', 'media_height', 'position']) {
     if (!columns.has(column)) {
       db.exec(`ALTER TABLE milestones ADD COLUMN ${column} INTEGER`);
     }
   }
+
+  // Seed `position` from the (date-free) insertion order for old rows.
+  db.exec('UPDATE milestones SET position = id WHERE position IS NULL');
 
   return db;
 }

@@ -43,6 +43,30 @@ function makePayload(label) {
   };
 }
 
+async function createMilestone(baseUrl, label) {
+  const response = await fetch(`${baseUrl}/api/milestones`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(makePayload(label)),
+  });
+  assert.equal(response.status, 201);
+  return (await response.json()).id;
+}
+
+async function listMilestones(baseUrl) {
+  const response = await fetch(`${baseUrl}/api/milestones`);
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+function moveMilestone(baseUrl, id, direction) {
+  return fetch(`${baseUrl}/api/milestones/${id}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ direction }),
+  });
+}
+
 test('GET /api/config returns clientId and consumer authority', async () => {
   const { baseUrl, close } = await startTestServer();
 
@@ -345,6 +369,129 @@ test('POST /api/milestones re-checks the drive_endpoint host', async () => {
     ]) {
       assert.equal((await post(endpoint)).status, 400, `expected 400 for ${endpoint}`);
     }
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones/:id/move reorders rows and persists', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const first = await createMilestone(baseUrl, 'first');
+    const second = await createMilestone(baseUrl, 'second');
+    const third = await createMilestone(baseUrl, 'third');
+
+    let rows = await listMilestones(baseUrl);
+    assert.deepEqual(
+      rows.map((row) => row.title),
+      ['title-first', 'title-second', 'title-third']
+    );
+    assert.deepEqual(
+      rows.map((row) => row.position),
+      [1, 2, 3]
+    );
+
+    const movedUp = await moveMilestone(baseUrl, third, 'up');
+    assert.equal(movedUp.status, 200);
+    rows = await movedUp.json();
+    assert.deepEqual(
+      rows.map((row) => row.title),
+      ['title-first', 'title-third', 'title-second']
+    );
+
+    rows = await listMilestones(baseUrl);
+    assert.deepEqual(
+      rows.map((row) => row.title),
+      ['title-first', 'title-third', 'title-second']
+    );
+
+    const movedDown = await moveMilestone(baseUrl, first, 'down');
+    assert.equal(movedDown.status, 200);
+    rows = await movedDown.json();
+    assert.deepEqual(
+      rows.map((row) => row.title),
+      ['title-third', 'title-first', 'title-second']
+    );
+    assert.deepEqual(
+      rows.map((row) => row.id).sort((a, b) => a - b),
+      [first, second, third]
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones/:id/move is a no-op at the edges', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const first = await createMilestone(baseUrl, 'first');
+    const second = await createMilestone(baseUrl, 'second');
+
+    const upEdge = await moveMilestone(baseUrl, first, 'up');
+    assert.equal(upEdge.status, 200);
+    assert.deepEqual(
+      (await upEdge.json()).map((row) => row.title),
+      ['title-first', 'title-second']
+    );
+
+    const downEdge = await moveMilestone(baseUrl, second, 'down');
+    assert.equal(downEdge.status, 200);
+    assert.deepEqual(
+      (await downEdge.json()).map((row) => row.title),
+      ['title-first', 'title-second']
+    );
+  } finally {
+    await close();
+  }
+});
+
+test('POST /api/milestones/:id/move validates id and direction', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const id = await createMilestone(baseUrl, 'first');
+
+    for (const bad of ['abc', '0', '-1', '1.5']) {
+      const res = await moveMilestone(baseUrl, bad, 'up');
+      assert.equal(res.status, 400, `expected 400 for id=${bad}`);
+    }
+
+    for (const direction of [undefined, 'left', 'UP', 1]) {
+      const res = await fetch(`${baseUrl}/api/milestones/${id}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction }),
+      });
+      assert.equal(res.status, 400, `expected 400 for direction=${direction}`);
+    }
+
+    const missing = await moveMilestone(baseUrl, 9999, 'up');
+    assert.equal(missing.status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test('GET /api/milestones keeps position order across delete and re-add', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    await createMilestone(baseUrl, 'first');
+    const second = await createMilestone(baseUrl, 'second');
+    await createMilestone(baseUrl, 'third');
+
+    const del = await fetch(`${baseUrl}/api/milestones/${second}`, { method: 'DELETE' });
+    assert.equal(del.status, 200);
+
+    await createMilestone(baseUrl, 'fourth');
+
+    const rows = await listMilestones(baseUrl);
+    assert.deepEqual(
+      rows.map((row) => row.title),
+      ['title-first', 'title-third', 'title-fourth']
+    );
   } finally {
     await close();
   }

@@ -442,6 +442,28 @@ input[type="file"]::file-selector-button {
   opacity: 0.85;
 }
 
+.edit-mode-toggle {
+  width: 40px;
+  height: 40px;
+  min-height: auto;
+  padding: 0;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 50%;
+  background: #f0f0f0;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.edit-mode-toggle[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
 .empty-state {
   color: var(--color-text);
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -465,30 +487,48 @@ input[type="file"]::file-selector-button {
   position: relative;
 }
 
-.delete-button {
+.milestone-media-frame {
+  position: relative;
+  display: block;
+}
+
+/* Circular overlay controls shown only in edit mode (delete/move). */
+.milestone-control {
   position: absolute;
-  top: 0.85rem;
-  left: 1.15rem;
+  width: 48px;
+  height: 48px;
   min-height: auto;
-  border: 0;
-  border-bottom: 1px solid var(--color-text);
-  background: transparent;
-  color: var(--color-text);
-  font-weight: 700;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  padding: 0 0 0.15rem;
-  text-transform: uppercase;
-  /* White outline like subtitles — crisp 1px stroke for contrast on dark media */
-  text-shadow:
-    -1px -1px 0 #fff,
-     1px -1px 0 #fff,
-    -1px  1px 0 #fff,
-     1px  1px 0 #fff,
-     0 -1px 0 #fff,
-     0  1px 0 #fff,
-    -1px  0 0 #fff,
-     1px  0 0 #fff;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.milestone-control:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.delete-button {
+  top: 0.6rem;
+  left: 0.9rem;
+}
+
+.move-up-button {
+  top: 0.6rem;
+  right: 0.9rem;
+}
+
+.move-down-button {
+  bottom: 0.6rem;
+  right: 0.9rem;
 }
 
 .delete-modal-overlay {

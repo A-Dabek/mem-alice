@@ -35,6 +35,7 @@ function App() {
   const [ready, setReady] = useState(false);
   const [route, setRoute] = useState(getRoute());
   const [signingOut, setSigningOut] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +88,7 @@ function App() {
     } finally {
       clearResolutionCache();
       setAccount(null);
+      setEditMode(false);
       window.location.hash = '';
       setRoute('timeline');
       setSigningOut(false);
@@ -96,6 +98,20 @@ function App() {
   return html`
     <div class="app-shell">
       <header class="app-header">
+        ${route === 'timeline'
+          ? html`
+              <button
+                type="button"
+                class="edit-mode-toggle"
+                data-testid="edit-mode-toggle"
+                aria-pressed=${editMode}
+                aria-label=${editMode ? 'Wyłącz tryb edycji' : 'Włącz tryb edycji'}
+                onClick=${() => setEditMode((value) => !value)}
+              >
+                ${editMode ? '✅' : '✏️'}
+              </button>
+            `
+          : null}
         <span class="app-account" data-testid="app-account"
           >${account.name || account.username || ''}</span
         >
@@ -112,7 +128,7 @@ function App() {
       <main class="app-content">
         ${route === 'add'
           ? html`<${AddMilestoneScreen} onSaved=${goToTimeline} />`
-          : html`<${TimelineScreen} onAddMilestone=${goToAdd} />`}
+          : html`<${TimelineScreen} onAddMilestone=${goToAdd} editMode=${editMode} />`}
       </main>
     </div>
   `;

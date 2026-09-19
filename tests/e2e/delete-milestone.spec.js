@@ -24,6 +24,7 @@ test('deleting a milestone with confirmation removes it from the wall', async ({
 
   await expect(page.getByTestId('timeline-wall')).toBeVisible();
   await expect(page.getByTestId('milestone-thumb')).toHaveCount(3);
+  await page.getByTestId('edit-mode-toggle').click();
   await expect(page.getByTestId('delete-button')).toHaveCount(3);
 
   // Cancel keeps everything.
@@ -51,6 +52,7 @@ test('cancel via Escape dismisses the modal', async ({ page, request }) => {
   await setupApp(page, { items: [ITEMS[0]] });
   await page.goto('/');
 
+  await page.getByTestId('edit-mode-toggle').click();
   await expect(page.getByTestId('delete-button')).toHaveCount(1);
   await page.getByTestId('delete-button').first().click();
   await expect(page.getByTestId('delete-confirm-dialog')).toBeVisible();

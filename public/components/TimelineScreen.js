@@ -106,9 +106,9 @@ async function fetchMilestones() {
  * expands the full photo/video inline. A deleted/moved source file degrades to
  * a placeholder. Media boxes reserve their aspect ratio to avoid layout shift.
  *
- * @param {{ onAddMilestone: () => void }} props
+ * @param {{ onAddMilestone: () => void, editMode: boolean }} props
  */
-export function TimelineScreen({ onAddMilestone }) {
+export function TimelineScreen({ onAddMilestone, editMode = false }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
   const [resolved, setResolved] = useState({}); // id -> { status, thumbUrl, downloadUrl, mime, width, height }
@@ -117,6 +117,17 @@ export function TimelineScreen({ onAddMilestone }) {
   const [pendingDeleteId, setPendingDeleteId] = useState(null); // null | number
   const [deletingId, setDeletingId] = useState(null); // busy
   const [deleteError, setDeleteError] = useState('');
+  const [pendingMove, setPendingMove] = useState(null); // null | { id, direction, title }
+  const [movingId, setMovingId] = useState(null); // busy
+  const [moveError, setMoveError] = useState('');
+
+  // Entering edit mode clears any expansion so only thumbs/placeholders remain.
+  useEffect(() => {
+    if (editMode) {
+      setExpanded({});
+      setFullMedia({});
+    }
+  }, [editMode]);
 
   const wallRef = useRef(null);
   const startedRef = useRef(new Set());
@@ -211,12 +222,15 @@ export function TimelineScreen({ onAddMilestone }) {
     }
   }, [expanded, resolved, milestones, fullMedia]);
 
-  // Escape closes the delete confirmation modal.
+  // Escape closes whichever confirmation modal is open.
   const escapeEffect = typeof useLayoutEffect === 'function' ? useLayoutEffect : useEffect;
   escapeEffect(() => {
-    if (pendingDeleteId === null) return undefined;
+    if (pendingDeleteId === null && pendingMove === null) return undefined;
     function onKey(e) {
-      if (e.key === 'Escape' || e.key === 'Esc') setPendingDeleteId(null);
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        setPendingDeleteId(null);
+        setPendingMove(null);
+      }
     }
     window.addEventListener('keydown', onKey);
     document.addEventListener('keydown', onKey);
@@ -224,7 +238,7 @@ export function TimelineScreen({ onAddMilestone }) {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('keydown', onKey);
     };
-  }, [pendingDeleteId]);
+  }, [pendingDeleteId, pendingMove]);
 
   if (loadError) {
     return html`
@@ -261,11 +275,11 @@ export function TimelineScreen({ onAddMilestone }) {
           `
         : html`
             <div class="milestone-wall" data-testid="timeline-wall" ref=${wallRef}>
-              ${milestones.map((milestone) => {
+              ${milestones.map((milestone, index) => {
                 const e = resolved[milestone.id];
                 const mime = e?.mime || milestone.media_mime || '';
                 const isVideo = mime.startsWith('video/');
-                const isExpanded = expanded[milestone.id] && e?.downloadUrl;
+                const isExpanded = !editMode && expanded[milestone.id] && e?.downloadUrl;
                 const width = e?.width ?? milestone.media_width ?? null;
                 const height = e?.height ?? milestone.media_height ?? null;
                 const ratioStyle = `aspect-ratio: ${aspectFor(mime, width, height)}`;
@@ -274,7 +288,8 @@ export function TimelineScreen({ onAddMilestone }) {
                   : e?.thumbUrl || e?.downloadUrl;
                 return html`
                   <div class="milestone-item" data-testid="milestone-item" data-mid=${milestone.id} key=${milestone.id}>
-                    ${isExpanded
+                    <div class="milestone-media-frame">
+                      ${isExpanded
                       ? isVideo
                         ? html`<video
                             class="milestone-video"
@@ -302,16 +317,18 @@ export function TimelineScreen({ onAddMilestone }) {
                               src=${e.thumbUrl}
                               alt=${milestone.title || ''}
                               loading="lazy"
-                              onClick=${() => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
+                              onClick=${editMode ? undefined : () => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
                             />
-                            <button
-                              type="button"
-                              class="milestone-load-button"
-                              data-testid="milestone-load-button"
-                              onClick=${() => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
-                            >
-                              ${isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
-                            </button>
+                            ${editMode
+                              ? null
+                              : html`<button
+                                  type="button"
+                                  class="milestone-load-button"
+                                  data-testid="milestone-load-button"
+                                  onClick=${() => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
+                                >
+                                  ${isVideo ? 'Odtwórz wideo' : 'Zobacz zdjęcie'}
+                                </button>`}
                           `
                         : e && e.status === 'needs-auth'
                           ? html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
@@ -344,9 +361,39 @@ export function TimelineScreen({ onAddMilestone }) {
                               : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                                   <span data-testid="milestone-media-loading">${LOADING_ITEM}</span>
                                 </div>`}
+                      ${editMode
+                        ? html`
+                            <button
+                              type="button"
+                              class="milestone-control delete-button"
+                              data-testid="delete-button"
+                              data-id=${milestone.id}
+                              aria-label="Usuń kamień milowy"
+                              onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}
+                            >🗑️</button>
+                            <button
+                              type="button"
+                              class="milestone-control move-up-button"
+                              data-testid="move-up-button"
+                              data-id=${milestone.id}
+                              aria-label="Przenieś wyżej"
+                              disabled=${index === 0}
+                              onClick=${() => { setPendingMove({ id: milestone.id, direction: 'up', title: milestone.title }); setMoveError(''); }}
+                            >🔼</button>
+                            <button
+                              type="button"
+                              class="milestone-control move-down-button"
+                              data-testid="move-down-button"
+                              data-id=${milestone.id}
+                              aria-label="Przenieś niżej"
+                              disabled=${index === milestones.length - 1}
+                              onClick=${() => { setPendingMove({ id: milestone.id, direction: 'down', title: milestone.title }); setMoveError(''); }}
+                            >🔽</button>
+                          `
+                        : null}
+                    </div>
                     <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
                     <p class="milestone-subtitle" data-testid="milestone-subtitle">${milestone.subtitle}</p>
-                    <button type="button" class="delete-button" data-testid="delete-button" data-id=${milestone.id} onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}>Usuń</button>
                   </div>
                 `;
               })}
@@ -377,6 +424,35 @@ export function TimelineScreen({ onAddMilestone }) {
                   setDeletingId(null);
                 }
               }}>${deletingId !== null ? 'Usuwanie...' : 'Usuń'}</button>
+            </div>
+          </div>
+        </div>` : null}
+      ${pendingMove !== null ? html`
+        <div class="delete-modal-overlay" data-testid="move-confirm-dialog" onClick=${() => setPendingMove(null)}>
+          <div class="delete-modal" role="dialog" aria-modal="true" aria-labelledby="move-modal-title" onClick=${e => e.stopPropagation()}>
+            <p id="move-modal-title" class="delete-modal-title">Przenieść ten kamień milowy ${pendingMove.direction === 'up' ? 'wyżej' : 'niżej'}?</p>
+            <p class="delete-modal-hint">Zmieni to kolejność na osi czasu.</p>
+            ${moveError ? html`<p class="error" data-testid="move-error">${moveError}</p>` : null}
+            <div class="delete-modal-actions">
+              <button type="button" class="delete-cancel move-cancel" data-testid="move-cancel" disabled=${movingId !== null} onClick=${() => setPendingMove(null)}>Anuluj</button>
+              <button type="button" class="delete-confirm move-confirm" data-testid="move-confirm" disabled=${movingId !== null} onClick=${async () => {
+                setMovingId(pendingMove.id);
+                setMoveError('');
+                try {
+                  const res = await fetchWithAuth('/api/milestones/' + pendingMove.id + '/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ direction: pendingMove.direction }),
+                  });
+                  if (!res.ok) throw new Error('move failed');
+                  setMilestones(await res.json());
+                  setPendingMove(null);
+                } catch {
+                  setMoveError('Nie można przenieść kamienia milowego. Spróbuj ponownie.');
+                } finally {
+                  setMovingId(null);
+                }
+              }}>${movingId !== null ? 'Przenoszenie...' : 'Przenieś'}</button>
             </div>
           </div>
         </div>` : null}

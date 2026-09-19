@@ -37,20 +37,26 @@ CREATE TABLE IF NOT EXISTS milestones (
   media_mime TEXT NOT NULL,
   media_width INTEGER,
   media_height INTEGER,
-  item_name TEXT
+  item_name TEXT,
+  position INTEGER
 );
 ```
 
 No dates, no `config` table, no migrations (deferred debt #8). The app is
 pre-prod, so schema changes may require recreating the dev DB. `server/db.js`
-does backfill the additive `media_width`/`media_height` columns on an existing
-dev DB so old rows survive.
+does backfill the additive `media_width`/`media_height`/`position` columns on an
+existing dev DB so old rows survive; `position` is seeded from the (date-free)
+insertion order (`UPDATE … SET position = id WHERE position IS NULL`).
 
 ### API — `server/index.js`, `server/routes/milestones.js`, `server/auth.js`
 
 - `GET /api/config` → `{ clientId: process.env.MS_CLIENT_ID ?? null, authority: process.env.MS_AUTHORITY || 'https://login.microsoftonline.com/consumers' }` (public)
-- `GET /api/milestones` → list, oldest first (`ORDER BY id ASC`)
-- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, drive_endpoint?, media_mime, media_width?, media_height?, item_name? }`
+- `GET /api/milestones` → list ordered by mutable `position` ASC, `id` ASC
+  (`position` seeded from insertion order, re-orderable)
+- `POST /api/milestones` → `{ title, subtitle?, drive_item_id, drive_id?, drive_endpoint?, media_mime, media_width?, media_height?, item_name? }` (appends last: `position = MAX(position) + 1`)
+- `POST /api/milestones/:id/move` → `{ direction: 'up' | 'down' }`; swaps
+  `position` with the adjacent row in a transaction (edge rows are a no-op,
+  400 bad id/direction, 404 unknown) and returns the full re-ordered list
 - `DELETE /api/milestones/:id`
 - `DELETE /api/milestones` → bulk truncate (test/e2e isolation helper)
 
@@ -192,7 +198,9 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
 ### Screens
 
 - `app.js`: signed-out → `SignInScreen`; signed-in → app shell with the account
-  name + "Wyloguj", plus `#add` route or Timeline.
+  name + "Wyloguj" and (on the Timeline route) the `edit-mode-toggle` in the
+  header top-left; owns `editMode` and passes it down. Then `#add` route or
+  Timeline.
 - `AddMilestoneScreen.js`: "Wybierz z OneDrive" → `getPickerToken()` →
   `pickFile(token)` → `resolveItem(…, token)` → preview, then
   `POST /api/milestones` via `fetchWithAuth` with the reference plus the resolved
@@ -213,12 +221,23 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
   `object-fit: cover`, expanded media `contain`). Expanded photos keep the
   thumbnail as `src` and swap to the preloaded full-resolution URL only once it
   is decoded (videos use `poster`), so expanding never flashes a blank box.
+  An edit-mode toggle (`edit-mode-toggle`, pencil/check) sits in the app header
+  top-left (next to the account/logout, timeline route only, owned by `app.js`)
+  and overlays circular emoji controls on each media frame: delete (top-left),
+  move up (top-right), move down (bottom-right). Move up/down are disabled at
+  the first/last row and ask for confirmation via a modal reusing the
+  delete-modal markup (`move-confirm`/`move-cancel`), then `POST …/:id/move` and
+  replace the list with the returned ordering. In edit mode expansion is
+  disabled (no load button, `isExpanded` forced false, expanded/full-media state
+  cleared) and Escape dismisses whichever confirmation modal is open.
 
 Test ids kept: `title-input`, `subtitle-input`, `save-button`, `add-error`,
 `signin-button`, `picker-button`, `picker-cancel`, `media-preview`,
 `milestone-item`, `milestone-photo`, `milestone-video`, `milestone-thumb`,
 `delete-*`, plus `app-account`, `signout-button`, `milestone-reauth`,
-`milestone-retry`.
+`milestone-retry`. Edit/move adds `edit-mode-toggle`, `move-up-button`,
+`move-down-button`, `move-confirm-dialog`, `move-confirm`, `move-cancel`,
+`move-error`.
 
 ## Picked item resolution: why not Graph
 
