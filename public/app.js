@@ -7,6 +7,7 @@ import { clearResolutionCache } from './onedriveCache.js';
 import { SignInScreen } from './components/SignInScreen.js';
 import { AddMilestoneScreen } from './components/AddMilestoneScreen.js';
 import { TimelineScreen } from './components/TimelineScreen.js';
+import { CheckIcon, PencilIcon } from './components/icons.js';
 
 const html = htm.bind(h);
 
@@ -108,7 +109,7 @@ function App() {
                 aria-label=${editMode ? 'Wyłącz tryb edycji' : 'Włącz tryb edycji'}
                 onClick=${() => setEditMode((value) => !value)}
               >
-                ${editMode ? '✅' : '✏️'}
+                ${editMode ? html`<${CheckIcon} />` : html`<${PencilIcon} />`}
               </button>
             `
           : null}

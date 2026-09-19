@@ -4,6 +4,7 @@ import htm from 'https://esm.sh/htm@3.1.1';
 
 import { resolveItemCached } from '../onedriveCache.js';
 import { fetchWithAuth, getAccount, getPickerToken, trySilentPickerToken } from '../auth.js';
+import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from './icons.js';
 
 const html = htm.bind(h);
 
@@ -370,7 +371,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                               data-id=${milestone.id}
                               aria-label="Usuń kamień milowy"
                               onClick=${() => { setPendingDeleteId(milestone.id); setDeleteError(''); }}
-                            >🗑️</button>
+                            ><${TrashIcon} /></button>
                             <button
                               type="button"
                               class="milestone-control move-up-button"
@@ -379,7 +380,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                               aria-label="Przenieś wyżej"
                               disabled=${index === 0}
                               onClick=${() => { setPendingMove({ id: milestone.id, direction: 'up', title: milestone.title }); setMoveError(''); }}
-                            >🔼</button>
+                            ><${ArrowUpIcon} /></button>
                             <button
                               type="button"
                               class="milestone-control move-down-button"
@@ -388,7 +389,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                               aria-label="Przenieś niżej"
                               disabled=${index === milestones.length - 1}
                               onClick=${() => { setPendingMove({ id: milestone.id, direction: 'down', title: milestone.title }); setMoveError(''); }}
-                            >🔽</button>
+                            ><${ArrowDownIcon} /></button>
                           `
                         : null}
                     </div>

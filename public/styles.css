@@ -6,15 +6,16 @@
   font-display: swap;
 }
 
-::root {
-  --color-bg: #ffffff;
-  --color-surface: #ffffff;
-  --color-text: #111111;
-  --color-muted: #656565;
-  --color-border: #c9c9c9;
-  --color-accent: #111111;
-  --color-accent-contrast: #ffffff;
-  --color-error: #111111;
+:root {
+  --color-bg: #f7f4ee;
+  --color-surface: #fffdf8;
+  --color-text: #1a1815;
+  --color-muted: #6f6a60;
+  --color-border: rgba(26, 24, 21, 0.22);
+  --color-rule: rgba(26, 24, 21, 0.55);
+  --color-accent: #7a1f1f;
+  --color-accent-contrast: #fffdf8;
+  --color-error: #7a1f1f;
   --spacing-xs: 0.5rem;
   --spacing-sm: 0.75rem;
   --spacing-md: 1.25rem;
@@ -34,7 +35,7 @@ body {
 }
 
 body {
-  background: #ffffff;
+  background: var(--color-bg);
   color: var(--color-text);
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-weight: 100;
@@ -64,7 +65,7 @@ button {
   flex-direction: column;
   min-height: 100vh;
   min-height: 100dvh;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .app-content {
@@ -84,7 +85,7 @@ button {
 
 .app-account {
   font-size: 0.8rem;
-  color: #6b6b6b;
+  color: var(--color-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -92,15 +93,25 @@ button {
 }
 
 .signout-button {
-  border: 1px solid #d8d8d8;
-  background: #ffffff;
-  color: #333333;
-  border-radius: 999px;
-  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--color-rule);
+  background: transparent;
+  color: var(--color-text);
+  border-radius: 0;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .signout-button:disabled {
   opacity: 0.6;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* Shared form styling */
@@ -186,7 +197,7 @@ button[type="submit"]:active {
   max-width: 28rem;
   margin: 0 auto;
   padding: var(--spacing-lg) 1.25rem;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .signin-screen h1 {
@@ -229,17 +240,6 @@ button[type="submit"]:active {
   max-width: 34rem;
   margin: 0 auto;
   padding-top: clamp(2.5rem, 10vw, 5rem);
-}
-
-.add-screen h1::after {
-  content: "Prywatny zapis";
-  display: block;
-  margin-top: 1rem;
-  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 0.68rem;
-  font-weight: 100;
-  letter-spacing: 0.14em;
-  line-height: 1.4;
 }
 
 .add-screen input[type="file"] {
@@ -402,7 +402,7 @@ input[type="file"]::file-selector-button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .timeline-masthead {
@@ -411,9 +411,8 @@ input[type="file"]::file-selector-button {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  border-bottom: 1px solid var(--color-text);
-  margin: 1.5rem auto 2.5rem;
-  padding-bottom: 0.65rem;
+  margin: 2rem auto 3rem;
+  padding-bottom: 0.75rem;
 }
 
 .publication-name {
@@ -428,7 +427,7 @@ input[type="file"]::file-selector-button {
 .add-button {
   min-height: auto;
   border: 0;
-  border-bottom: 1px solid var(--color-text);
+  border-bottom: 1px solid var(--color-rule);
   background: transparent;
   color: var(--color-text);
   font-weight: 700;
@@ -451,17 +450,17 @@ input[type="file"]::file-selector-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #d8d8d8;
-  border-radius: 50%;
-  background: #f0f0f0;
-  font-size: 1rem;
-  line-height: 1;
+  border: 1px solid var(--color-text);
+  border-radius: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
   cursor: pointer;
 }
 
 .edit-mode-toggle[aria-pressed='true'] {
   border-color: var(--color-accent);
   background: var(--color-accent);
+  color: var(--color-accent-contrast);
 }
 
 .empty-state {
@@ -492,22 +491,20 @@ input[type="file"]::file-selector-button {
   display: block;
 }
 
-/* Circular overlay controls shown only in edit mode (delete/move). */
+/* Sharp-cornered overlay controls shown only in edit mode (delete/move). */
 .milestone-control {
   position: absolute;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   min-height: auto;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #fff;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
-  font-size: 1.15rem;
-  line-height: 1;
+  border: 1px solid var(--color-text);
+  border-radius: 0;
+  background: rgba(255, 253, 248, 0.82);
+  color: var(--color-text);
   cursor: pointer;
 }
 
@@ -518,17 +515,18 @@ input[type="file"]::file-selector-button {
 
 .delete-button {
   top: 0.6rem;
-  left: 0.9rem;
+  left: 0.6rem;
+  color: var(--color-accent);
 }
 
 .move-up-button {
   top: 0.6rem;
-  right: 0.9rem;
+  right: 0.6rem;
 }
 
 .move-down-button {
   bottom: 0.6rem;
-  right: 0.9rem;
+  right: 0.6rem;
 }
 
 .delete-modal-overlay {
@@ -543,7 +541,7 @@ input[type="file"]::file-selector-button {
 }
 
 .delete-modal {
-  background: #fff;
+  background: var(--color-surface);
   max-width: 28rem;
   width: 100%;
   padding: 1.75rem 1.5rem;
@@ -555,7 +553,7 @@ input[type="file"]::file-selector-button {
 .delete-modal-actions { display:flex; gap:0.75rem; justify-content:center; }
 .delete-cancel {
   flex:1; min-height:var(--touch-target);
-  border:1px solid var(--color-text); background:#fff; color:var(--color-text);
+  border:1px solid var(--color-text); background:var(--color-surface); color:var(--color-text);
   font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
 }
 .delete-confirm {
@@ -570,9 +568,8 @@ input[type="file"]::file-selector-button {
 .milestone-photo-placeholder {
   width: 100%;
   display: block;
-  background: #ffffff;
+  background: var(--color-bg);
   box-sizing: border-box;
-  padding: 0 0.6rem;
 }
 
 .milestone-photo {
@@ -590,11 +587,13 @@ input[type="file"]::file-selector-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text);
+  color: var(--color-muted);
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-align: center;
   padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .milestone-title {
@@ -603,7 +602,7 @@ input[type="file"]::file-selector-button {
   font-size: 1.25rem;
   font-weight: 100;
   line-height: 1.15;
-  text-align: center;
+  text-align: left;
 }
 
 .milestone-subtitle {
@@ -613,16 +612,16 @@ input[type="file"]::file-selector-button {
   font-weight: 100;
   letter-spacing: 0.08em;
   color: var(--color-muted);
-  text-align: center;
+  text-align: left;
 }
 
 .milestone-thumb{
-  width:100%; display:block; background:#000; object-fit:cover;
-  padding:0 0.6rem; box-sizing:border-box; cursor:pointer;
+  width:100%; display:block; background:var(--color-bg); object-fit:cover;
+  box-sizing:border-box; cursor:pointer;
 }
 .milestone-load-button{
   position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-  border:1px solid #fff; background:rgba(0,0,0,0.65); color:#fff;
+  border:1px solid var(--color-text); background:rgba(255,253,248,0.85); color:var(--color-text);
   font-size:0.7rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
   padding:0.6rem 0.9rem; min-height:var(--touch-target);
 }
