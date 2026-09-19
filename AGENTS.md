@@ -46,7 +46,9 @@
   picker in a self-created full-screen **inline iframe overlay** (no popup;
   body scroll lock, `#app` inert, Escape/Cancel → `CANCELLED`), POSTing into the
   iframe's about:blank document. Consumer base
-  `https://onedrive.live.com/picker`, pivots `oneDrive`/`recent`,
+  `https://onedrive.live.com/picker`, pivots `oneDrive`/`recent` **disabled**
+  (nav shows only the entry-targeted `oneDrive.photos`), entry
+  `oneDrive.photos` (opens on Photos, not "My files"),
   `accessibility.enableFocusTrap: true`. Command responses must use the top-level
   id `message.id` (not `message.data.id`) or the picker throws
   `acknowledgeTimeout`. Ignore `command.resource` for consumer

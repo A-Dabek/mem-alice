@@ -136,8 +136,9 @@ export function pickFile(token) {
     const options = {
       sdk: '8.0',
       entry: {
+        // Open straight into the consumer Photos pivot instead of "My files".
         oneDrive: {
-          files: {},
+          photos: {},
         },
       },
       authentication: {},
@@ -146,14 +147,16 @@ export function pickFile(token) {
         channelId,
       },
       // Consumer (personal) accounts only support the OneDrive + Recent pivots.
-      // Omitting `pivots` makes the picker show business-only pivots (Shared,
+      // Disable them so the nav shows only the entry-targeted Photos pivot
+      // (an entry-targeted pivot renders even when not enabled here); leaving
+      // `pivots` out entirely would surface business-only pivots (Shared,
       // Groups) that fail/time out on personal accounts.
       typesAndSources: {
         mode: 'files',
         filters: ['photo', 'video'],
         pivots: {
-          oneDrive: true,
-          recent: true,
+          oneDrive: false,
+          recent: false,
         },
       },
       selection: {

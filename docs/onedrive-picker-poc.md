@@ -151,7 +151,12 @@ about:blank document (required so submitting navigates the iframe), then
 submitted with a hidden `access_token`. `finish()` removes the overlay, the
 message listener and the scroll lock instead of closing a window. Any setup
 failure rejects `PICKER_LOAD_FAILED`. The picker options set
-`accessibility.enableFocusTrap: true`.
+`accessibility.enableFocusTrap: true` and `entry.oneDrive.photos: {}` so the
+consumer picker opens directly on the **Photos** pivot instead of "My files"
+(entry-targeted pivots render even when absent from `typesAndSources.pivots`).
+`typesAndSources.pivots.oneDrive`/`recent` are set `false` so the nav shows only
+Photos; `leftNav.enabled: false` is the fallback if the sidebar must be removed
+entirely.
 
 Handshake: `initialize` → grab `event.ports[0]` → `activate`; on the port handle
 `authenticate` → `result/token`, `pick` → resolve `{ id, driveId, endpoint }`,
