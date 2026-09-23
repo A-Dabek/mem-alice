@@ -12,6 +12,7 @@ const NO_MEDIA_ERROR = 'Wybierz zdjęcie lub wideo z OneDrive.';
 const NO_TITLE_ERROR = 'Wpisz tytuł.';
 const PICK_ERROR = 'Nie można wybrać pliku. Spróbuj ponownie.';
 const SAVE_ERROR = 'Nie można zapisać kamienia milowego. Spróbuj ponownie.';
+const REAUTH_ERROR = 'Sesja wygasła. Zaloguj się ponownie.';
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|webm)$/i;
 
@@ -136,6 +137,11 @@ export function AddMilestoneScreen({ onSaved }) {
         }),
       });
 
+      if (response.status === 401) {
+        const authError = new Error(REAUTH_ERROR);
+        authError.code = 'AUTH_REQUIRED';
+        throw authError;
+      }
       if (!response.ok) {
         throw new Error(SAVE_ERROR);
       }
@@ -145,8 +151,8 @@ export function AddMilestoneScreen({ onSaved }) {
       setSubtitle('');
       setPickError('');
       onSaved();
-    } catch {
-      setError(SAVE_ERROR);
+    } catch (error) {
+      setError(error?.code === 'AUTH_REQUIRED' ? REAUTH_ERROR : SAVE_ERROR);
     } finally {
       setBusy(false);
     }

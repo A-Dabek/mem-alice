@@ -137,10 +137,24 @@ Easiest setup: copy `.env.example` → `.env` (gitignored) and fill it in.
   iframe opens, so the consent popup has a user gesture.
 - `trySilentPickerToken()` is silent-only and is the **only** token call used from
   inside the picker message flow.
-- `fetchWithAuth()` attaches `Authorization: Bearer <id_token>` best-effort.
-- `signOut()` clears the account via `logoutPopup`.
+- **ID-token persistence + re-auth.** Every interactive result that carries an
+  `id_token` (`signIn`, the popup fallback of `getPickerToken`, `getIdToken`'s
+  silent hit, `reauthenticate`) is persisted per account under
+  `mem-alice.idtoken.<homeAccountId>` as `{ token, expiresOn }` (`expiresOn`
+  decoded from the JWT `exp`; a 50-min TTL fallback for opaque tokens). The
+  silent token wins, else an unexpired persisted token (60s margin), else a
+  typed `AUTH_REQUIRED`. `reauthenticate()` is the gesture-safe
+  `acquireTokenPopup({ scopes: ID_TOKEN_SCOPES })` recovery path.
+- `fetchWithAuth()` attaches `Authorization: Bearer <id_token>`; it never
+  degrades silently: when no ID token is available it forwards the request
+  without `Authorization` plus `X-Auth-Error`/`X-Auth-Stage` diagnostic headers
+  (so the server's "missing token" warn carries the client reason) and then
+  throws `AUTH_REQUIRED`. `signOut()` removes all `mem-alice.idtoken.*` entries
+  and clears the account via `logoutPopup`.
 - Errors carry a `code` (`MS_CLIENT_ID_MISSING`, `CONFIG_FETCH_FAILED`,
-  `MSAL_NOT_LOADED`, `ID_TOKEN_MISSING`) which screens map to Polish messages.
+  `MSAL_NOT_LOADED`, `AUTH_REQUIRED`) which screens map to Polish messages. `describeError()` and `lastAuthDiagnostic` normalize/record
+  the client-side failure (code, subError, stage); only token
+  presence/length/expiry is ever logged, never the token.
 
 ### `public/picker.js` (File Picker v8) — FROZEN
 
@@ -214,7 +228,10 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
 - `TimelineScreen.js`: plaintext title/subtitle; rows resolve lazily
   (IntersectionObserver, **silent-only**) through the cache. States:
   `loading | ready | needs-auth | gone | error`, with gesture-safe
-  "Zaloguj ponownie" (re-auth) and "Spróbuj ponownie" (retry) buttons. Click
+  "Zaloguj ponownie" (re-auth) and "Spróbuj ponownie" (retry) buttons. A
+  list-level `AUTH_REQUIRED`/401 shows "Sesja wygasła. Zaloguj się ponownie."
+  with a `timeline-reauth` button that calls `reauthenticate()` and refetches;
+  delete/move map 401 to the same message instead of the generic error. Click
   expands full media; delete modal retained. Placeholders, thumbnails and
   expanded media all reserve the same inline `aspect-ratio` (resolved intrinsic
   size, else stored `media_width`/`media_height`, else MIME fallback; thumbnails
@@ -235,7 +252,7 @@ Test ids kept: `title-input`, `subtitle-input`, `save-button`, `add-error`,
 `signin-button`, `picker-button`, `picker-cancel`, `media-preview`,
 `milestone-item`, `milestone-photo`, `milestone-video`, `milestone-thumb`,
 `delete-*`, plus `app-account`, `signout-button`, `milestone-reauth`,
-`milestone-retry`. Edit/move adds `edit-mode-toggle`, `move-up-button`,
+`milestone-retry`, `timeline-reauth`. Edit/move adds `edit-mode-toggle`, `move-up-button`,
 `move-down-button`, `move-confirm-dialog`, `move-confirm`, `move-cancel`,
 `move-error`.
 
@@ -263,12 +280,13 @@ flow and persists `@sharePoint.endpoint` as `milestones.drive_endpoint`.
 | business pivots (Shared/Groups) fail on personal | `pivots` omitted | `pivots: { oneDrive: true, recent: true }` |
 | `403 Origin not allowed` on Add/Delete | mutation Origin not same-host/allowlisted | use same-origin, or set `ALLOWED_ORIGINS` |
 | `403 Account not allowed` | token identity not in `ALLOWED_EMAILS` | add the account email |
+| `401 Missing bearer token` (`clientError`/`stage` in the warn) | SPA had no ID token and forwarded `X-Auth-Error`/`X-Auth-Stage` | check the client code/stage; silent ID-token miss recovers via the persisted token or `reauthenticate()` |
 
 ## Verify / commands
 
 ```bash
-pnpm test                         # 48 unit tests
-pnpm test:e2e                     # 14 E2E tests (stubbed auth/picker/OneDrive)
+pnpm test                         # 68 unit tests
+pnpm test:e2e                     # 22 E2E tests (stubbed auth/picker/OneDrive)
 MS_CLIENT_ID=<app-id> ALLOWED_EMAILS=<email> pnpm start
 ```
 

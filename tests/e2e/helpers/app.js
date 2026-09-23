@@ -8,10 +8,13 @@ import { stubOneDrive } from './onedrive.js';
 
 /**
  * @param {import('@playwright/test').Page} page
- * @param {{ items?: object[], signedIn?: boolean }} [options]
+ * @param {{ items?: object[], signedIn?: boolean, silentIdToken?: string, popupIdToken?: string }} [options]
  */
-export async function setupApp(page, { items = [], signedIn = true } = {}) {
-  await stubAuth(page, { signedIn });
+export async function setupApp(
+  page,
+  { items = [], signedIn = true, silentIdToken, popupIdToken } = {}
+) {
+  await stubAuth(page, { signedIn, silentIdToken, popupIdToken });
   await installPicker(page);
   await stubOneDrive(page, items);
 }

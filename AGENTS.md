@@ -43,10 +43,14 @@
   `index.html`, no CDN/global). Scopes: OIDC (`openid profile email`) for
   sign-in, `OneDrive.ReadOnly` for the picker. `getPickerToken()` (interactive)
   must run before the picker iframe opens; `trySilentPickerToken()` is the only
-  token call allowed inside the picker message flow. `getIdToken()` silently
-  gets an ID token for our API (needs `openid` paired with `OneDrive.ReadOnly`
-  on MSA); `fetchWithAuth()` attaches the Bearer header best-effort; `signOut()`
-  logs out via popup.
+  token call allowed inside the picker message flow. `getIdToken()` requires an
+  ID token for our API in the order silent → per-account persisted
+  (sessionStorage, decoded `exp`) → typed `AUTH_REQUIRED` (needs `openid` paired
+  with `OneDrive.ReadOnly` on MSA); `reauthenticate()` is the gesture-safe
+  recovery. `fetchWithAuth()` attaches the Bearer header and never degrades
+  silently: on a missing token it forwards `X-Auth-Error`/`X-Auth-Stage` then
+  throws `AUTH_REQUIRED`. `signOut()` clears all `mem-alice.idtoken.*` and logs
+  out via popup.
 - `public/picker.js` — File Picker v8. **FROZEN** (fragile handshake). Hosts the
   picker in a self-created full-screen **inline iframe overlay** (no popup;
   body scroll lock, `#app` inert, Escape/Cancel → `CANCELLED`), POSTing into the
@@ -108,9 +112,9 @@
   active/ignored.
 
 ## Testing
-- **Unit**: `pnpm test` → `node --test server/ public/` (52 tests:
+- **Unit**: `pnpm test` → `node --test server/ public/` (68 tests:
   `server/server.test.js`, `server/auth.test.js`, `public/onedrive.test.js`,
-  `public/onedriveCache.test.js`).
+  `public/onedriveCache.test.js`, `public/auth.test.js`).
 - **E2E**: `pnpm test:e2e` (single `playwright test`). Specs use stubs in
   `tests/e2e/helpers/` (`auth.js` fakes the vendored MSAL module, `picker.js`
   patches form submit and drives the real v8 handshake through the app-created

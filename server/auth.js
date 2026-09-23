@@ -17,8 +17,22 @@ import { logger } from './logger.js';
 
 const DEFAULT_AUTHORITY = 'https://login.microsoftonline.com/consumers';
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const MAX_CLIENT_DIAGNOSTIC = 64;
 
 const discoveryCache = new Map();
+
+/**
+ * Sanitizes a client-forwarded diagnostic header. These values are untrusted
+ * and used for logging only: newlines are collapsed and the length is capped so
+ * a malicious client cannot forge log lines or flood the log.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function sanitizeDiagnostic(value) {
+  if (typeof value !== 'string') return '';
+  return value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_CLIENT_DIAGNOSTIC);
+}
 
 /**
  * Parses a comma-separated allowlist into a lowercase array.
@@ -149,7 +163,13 @@ export function createAuthMiddleware(options = {}) {
     const header = req.get('authorization') || '';
     const match = /^Bearer (.+)$/.exec(header);
     if (!match) {
-      logger.warn('auth rejected request', { reason: 'missing token' });
+      const clientError = sanitizeDiagnostic(req.get('x-auth-error'));
+      const stage = sanitizeDiagnostic(req.get('x-auth-stage'));
+      logger.warn('auth rejected request', {
+        reason: 'missing token',
+        ...(stage ? { stage } : {}),
+        ...(clientError ? { clientError } : {}),
+      });
       return res.status(401).json({ error: 'Missing bearer token' });
     }
 
@@ -168,14 +188,25 @@ export function createAuthMiddleware(options = {}) {
         audience: clientId,
         algorithms: ['RS256'],
       }));
-    } catch {
-      logger.warn('auth rejected request', { reason: 'invalid token' });
+    } catch (error) {
+      logger.warn('auth rejected request', {
+        reason: 'invalid token',
+        errCode: typeof error?.code === 'string' ? error.code : undefined,
+      });
       return res.status(401).json({ error: 'Invalid token' });
     }
 
     const identity = identityFrom(payload);
     if (!identity) {
-      logger.warn('auth rejected request', { reason: 'no identity' });
+      const hasEmail = typeof payload.email === 'string' && payload.email.length > 0;
+      const hasPreferredUsername =
+        typeof payload.preferred_username === 'string' &&
+        payload.preferred_username.length > 0;
+      logger.warn('auth rejected request', {
+        reason: 'no identity',
+        hasEmail,
+        hasPreferredUsername,
+      });
       return res.status(403).json({ error: 'Token has no identity' });
     }
     if (!allowedEmails.includes(identity.toLowerCase())) {

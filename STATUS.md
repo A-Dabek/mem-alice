@@ -20,13 +20,16 @@ Current as of the OneDrive PoC + auth hardening pass. See:
   avoid CLS; "Anuluj" drops a chosen item on the Add screen.
 - **Auth**: vendored MSAL v4.28.1 (import map; no CDN), client Bearer ID token,
   server ID-token verification (`server/auth.js`) + `ALLOWED_EMAILS` + Origin
-  checks; sign-out/account switching.
+  checks; per-account sessionStorage ID-token persistence (silent → persisted →
+  `AUTH_REQUIRED`), gesture-safe `reauthenticate()`, no silent degradation in
+  `fetchWithAuth` (forwards `X-Auth-Error`/`X-Auth-Stage`, throws
+  `AUTH_REQUIRED`); sign-out/account switching.
 - **Server validation**: MIME allowlist, length caps, endpoint host re-check.
 
 ## Testing
-- `pnpm test` — 48 unit tests.
-- `pnpm test:e2e` — 14 Playwright tests (stubbed auth/picker/OneDrive), single
-  invocation.
+- `pnpm test` — 68 unit tests (adds `public/auth.test.js`).
+- `pnpm test:e2e` — 22 Playwright tests (stubbed auth/picker/OneDrive), single
+  invocation; includes the re-auth + reload flow.
 
 ## Commands
 - `pnpm test`

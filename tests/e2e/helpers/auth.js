@@ -16,14 +16,30 @@ export const DEFAULT_ACCOUNT = {
   tenantId: 'consumers',
 };
 
-function stubModuleSource(signedIn, account) {
+/**
+ * Builds a syntactically valid (unsigned) JWT so the client can decode `exp`.
+ * The E2E server runs with AUTH_DISABLED=1, so it is never verified.
+ *
+ * @param {number} [expiresInSeconds]
+ * @returns {string}
+ */
+export function fakeIdToken(expiresInSeconds = 3600) {
+  const payload = Buffer.from(
+    JSON.stringify({ exp: Math.floor(Date.now() / 1000) + expiresInSeconds })
+  ).toString('base64url');
+  return `e2e.${payload}.sig`;
+}
+
+function stubModuleSource(signedIn, account, { silentIdToken, popupIdToken }) {
   return `
 const account = ${JSON.stringify(account)};
 let accounts = ${signedIn} ? [account] : [];
+const silentIdToken = ${JSON.stringify(silentIdToken)};
+const popupIdToken = ${JSON.stringify(popupIdToken)};
 
-const result = () => ({
+const result = (idToken) => ({
   account: accounts[0] || account,
-  idToken: 'e2e-id-token',
+  idToken,
   accessToken: 'e2e-access-token',
 });
 
@@ -43,7 +59,7 @@ export class PublicClientApplication {
   }
   loginPopup() {
     accounts = [account];
-    return Promise.resolve(result());
+    return Promise.resolve(result(popupIdToken));
   }
   acquireTokenSilent() {
     if (accounts.length === 0) {
@@ -51,10 +67,10 @@ export class PublicClientApplication {
       error.name = 'InteractionRequiredAuthError';
       return Promise.reject(error);
     }
-    return Promise.resolve(result());
+    return Promise.resolve(result(silentIdToken));
   }
   acquireTokenPopup() {
-    return this.acquireTokenSilent();
+    return Promise.resolve(result(popupIdToken));
   }
   logoutPopup() {
     accounts = [];
@@ -68,9 +84,17 @@ export class PublicClientApplication {
  * Installs the MSAL + config stubs before any page script runs.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{ signedIn?: boolean, account?: object }} [options]
+ * @param {{ signedIn?: boolean, account?: object, silentIdToken?: string, popupIdToken?: string }} [options]
  */
-export async function stubAuth(page, { signedIn = true, account = DEFAULT_ACCOUNT } = {}) {
+export async function stubAuth(
+  page,
+  {
+    signedIn = true,
+    account = DEFAULT_ACCOUNT,
+    silentIdToken = fakeIdToken(),
+    popupIdToken = fakeIdToken(),
+  } = {}
+) {
   await page.route('**/api/config', (route) =>
     route.fulfill({
       json: {
@@ -84,7 +108,7 @@ export async function stubAuth(page, { signedIn = true, account = DEFAULT_ACCOUN
     route.fulfill({
       status: 200,
       contentType: 'application/javascript',
-      body: stubModuleSource(signedIn, account),
+      body: stubModuleSource(signedIn, account, { silentIdToken, popupIdToken }),
     })
   );
 }

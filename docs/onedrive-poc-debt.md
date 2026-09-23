@@ -50,9 +50,17 @@ the DB (see deferred #8).
   `public/onedriveCache.test.js`, and the rewritten E2E suite.
 - **Sign-out / account switching (#10):** `signOut()` + app-shell "Wyloguj";
   cache cleared on sign-out.
-- **Full test coverage / E2E (#13):** `pnpm test` 52 unit tests; `pnpm test:e2e`
-  20 tests with stubbed auth/picker/OneDrive (includes edit-mode/move ordering).
+- **Full test coverage / E2E (#13):** `pnpm test` 68 unit tests; `pnpm test:e2e`
+  22 tests with stubbed auth/picker/OneDrive (includes edit-mode/move ordering
+  and the re-auth/reload flow).
 - **CSRF (#14):** same-origin/allowlisted `Origin` required on mutations.
+- **Silent ID-token dependency:** `public/auth.js` no longer degrades silently.
+  Interactive `id_token`s are persisted per account in sessionStorage (decoded
+  `exp`, 60s margin), `getIdToken()` falls back silent → persisted →
+  `AUTH_REQUIRED`, `reauthenticate()` is the gesture-safe recovery path, and
+  `fetchWithAuth()` throws instead of sending an unauthenticated request
+  (forwarding `X-Auth-Error`/`X-Auth-Stage` for server logging only). Client
+  diagnostics are covered by `public/auth.test.js`.
 - **Server-side ID-token + email guard (#1–2 broader):** `server/auth.js`
   verifies the ID token via OIDC discovery + `jose`, enforces `ALLOWED_EMAILS`,
   and guards `AUTH_DISABLED` in production.

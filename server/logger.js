@@ -1,6 +1,9 @@
 // never log req.body — see AGENTS.md
 // server/logger.js — minimal stdout abstraction, migratable to pino/winston.
-// Only allowed meta keys: method, path, status, reason (enum), id, limit.
+// Only allowed meta keys: method, path, status, reason (enum), id, limit,
+// stage, clientError, errCode, hasEmail, hasPreferredUsername.
+// The auth keys carry client-forwarded diagnostics (sanitized, untrusted),
+// a library error code, and identity *key-presence booleans* only.
 // Never log: req.body, title/subtitle text, token/identity values, media_mime value.
 
 function format(level, msg, meta = {}) {

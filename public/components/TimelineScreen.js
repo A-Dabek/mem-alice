@@ -3,7 +3,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/pre
 import htm from 'https://esm.sh/htm@3.1.1';
 
 import { resolveItemCached } from '../onedriveCache.js';
-import { fetchWithAuth, getAccount, getPickerToken, trySilentPickerToken } from '../auth.js';
+import {
+  fetchWithAuth,
+  getAccount,
+  getPickerToken,
+  reauthenticate,
+  trySilentPickerToken,
+} from '../auth.js';
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from './icons.js';
 
 const html = htm.bind(h);
@@ -13,6 +19,17 @@ const LOADING_ITEM = 'Ładowanie podglądu...';
 const REAUTH_ITEM = 'Sesja wygasła. Zaloguj się ponownie.';
 const GONE_ITEM = 'Ten element nie jest już dostępny.';
 const RESOLVE_ERROR = 'Nie udało się wczytać podglądu.';
+
+/**
+ * Builds a typed `AUTH_REQUIRED` error with the re-auth message.
+ *
+ * @returns {Error & { code: string }}
+ */
+function authRequiredError() {
+  const error = new Error(REAUTH_ITEM);
+  error.code = 'AUTH_REQUIRED';
+  return error;
+}
 
 /**
  * Acquires a picker token. Lazy rows resolve silently only: the
@@ -89,9 +106,11 @@ async function fetchMilestones() {
   let response;
   try {
     response = await fetchWithAuth('/api/milestones');
-  } catch {
+  } catch (error) {
+    if (error?.code === 'AUTH_REQUIRED') throw authRequiredError();
     throw new Error(LOAD_ERROR);
   }
+  if (response.status === 401) throw authRequiredError();
   if (!response.ok) {
     throw new Error(LOAD_ERROR);
   }
@@ -112,6 +131,8 @@ async function fetchMilestones() {
 export function TimelineScreen({ onAddMilestone, editMode = false }) {
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
+  const [needsReauth, setNeedsReauth] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [resolved, setResolved] = useState({}); // id -> { status, thumbUrl, downloadUrl, mime, width, height }
   const [expanded, setExpanded] = useState({}); // id -> boolean
   const [fullMedia, setFullMedia] = useState({}); // id -> true once full media is ready
@@ -135,17 +156,31 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
 
   useEffect(() => {
     let cancelled = false;
+    setMilestones(null);
+    setLoadError('');
+    setNeedsReauth(false);
     fetchMilestones()
       .then((rows) => {
         if (!cancelled) setMilestones(rows);
       })
-      .catch(() => {
-        if (!cancelled) setLoadError(LOAD_ERROR);
+      .catch((error) => {
+        if (cancelled) return;
+        if (error?.code === 'AUTH_REQUIRED') setNeedsReauth(true);
+        else setLoadError(LOAD_ERROR);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
+
+  async function handleReauth() {
+    try {
+      await reauthenticate();
+      setReloadKey((value) => value + 1);
+    } catch {
+      // Keep the re-auth affordance visible; the next click retries.
+    }
+  }
 
   function loadOne(id, { interactive = false, force = false } = {}) {
     if (!force && !interactive && startedRef.current.has(id)) return;
@@ -240,6 +275,22 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
       document.removeEventListener('keydown', onKey);
     };
   }, [pendingDeleteId, pendingMove]);
+
+  if (needsReauth) {
+    return html`
+      <div class="timeline-screen">
+        <p class="error" data-testid="timeline-error">${REAUTH_ITEM}</p>
+        <button
+          type="button"
+          class="milestone-load-button"
+          data-testid="timeline-reauth"
+          onClick=${handleReauth}
+        >
+          Zaloguj się ponownie
+        </button>
+      </div>
+    `;
+  }
 
   if (loadError) {
     return html`
@@ -413,14 +464,19 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                 setDeleteError('');
                 try {
                   const res = await fetchWithAuth('/api/milestones/' + pendingDeleteId, { method: 'DELETE' });
+                  if (res.status === 401) throw authRequiredError();
                   if (!res.ok) throw new Error('delete failed');
                   startedRef.current.delete(pendingDeleteId);
                   setMilestones(prev => prev.filter(m => m.id !== pendingDeleteId));
                   setResolved(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
                   setExpanded(prev => { const n = { ...prev }; delete n[pendingDeleteId]; return n; });
                   setPendingDeleteId(null);
-                } catch {
-                  setDeleteError('Nie można usunąć kamienia milowego. Spróbuj ponownie.');
+                } catch (error) {
+                  setDeleteError(
+                    error?.code === 'AUTH_REQUIRED'
+                      ? REAUTH_ITEM
+                      : 'Nie można usunąć kamienia milowego. Spróbuj ponownie.'
+                  );
                 } finally {
                   setDeletingId(null);
                 }
@@ -445,11 +501,16 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ direction: pendingMove.direction }),
                   });
+                  if (res.status === 401) throw authRequiredError();
                   if (!res.ok) throw new Error('move failed');
                   setMilestones(await res.json());
                   setPendingMove(null);
-                } catch {
-                  setMoveError('Nie można przenieść kamienia milowego. Spróbuj ponownie.');
+                } catch (error) {
+                  setMoveError(
+                    error?.code === 'AUTH_REQUIRED'
+                      ? REAUTH_ITEM
+                      : 'Nie można przenieść kamienia milowego. Spróbuj ponownie.'
+                  );
                 } finally {
                   setMovingId(null);
                 }
