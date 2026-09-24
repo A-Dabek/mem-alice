@@ -136,31 +136,38 @@ export function pickFile(token) {
     const options = {
       sdk: '8.0',
       entry: {
-        // Open straight into the consumer Photos pivot instead of "My files".
-        oneDrive: {
-          photos: {},
-        },
+        // Bare `oneDrive` starts on the user's drive root ("My files").
+        // `entry.oneDrive.files` is business-only: on consumer it rejects with
+        // `notSupported` (flat-tire page), see OneDrive/samples#45.
+        oneDrive: {},
       },
       authentication: {},
       messaging: {
         origin: window.location.origin,
         channelId,
       },
-      // Consumer (personal) accounts only support the OneDrive + Recent pivots.
-      // Disable them so the nav shows only the entry-targeted Photos pivot
-      // (an entry-targeted pivot renders even when not enabled here); leaving
-      // `pivots` out entirely would surface business-only pivots (Shared,
-      // Groups) that fail/time out on personal accounts.
+      // Consumer (personal) accounts support the OneDrive + Recent pivots;
+      // enable them (and target oneDrive as the entry) so the nav shows
+      // "My files" + "Recent". No `typesAndSources.filters`: on consumer a
+      // media filter builds a SharePoint `FSObjType` query the OneDrive API
+      // rejects (`WhereIsNull FSObjType`). The media allowlist is enforced in
+      // AddMilestoneScreen and server-side, so a non-media pick is refused.
       typesAndSources: {
         mode: 'files',
-        filters: ['photo', 'video'],
         pivots: {
-          oneDrive: false,
-          recent: false,
+          oneDrive: true,
+          recent: true,
         },
       },
       selection: {
         mode: 'single',
+      },
+      // Tiles request thumbnails; the default details list only has room for
+      // the file-type icon.
+      list: {
+        layout: {
+          type: 'tiles',
+        },
       },
       // The picker is the only content of a modal overlay here, so keep its
       // tab-stops looping inside the component.

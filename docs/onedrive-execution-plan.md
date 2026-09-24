@@ -313,3 +313,11 @@ snapped to the real 3:4.
 - 2026-09-18 — E3 DONE: "Wybierz z OneDrive" is the reserved-slot idle content
   (no "Nie wybrano pliku."); expanded photos keep the thumbnail until the full
   image is preloaded, videos use `poster`; `pnpm test:e2e` 14/14.
+- 2026-09-24 — Reverted 5713253 picker config to open on "My files": entry is
+  a bare `oneDrive: {}` (NOT `oneDrive.files`, which is business-only and throws
+  `notSupported` on consumer — OneDrive/samples#45), pivots `oneDrive`/`recent`
+  enabled. Dropped `typesAndSources.filters` (photo/video): on consumer it
+  builds a SharePoint `FSObjType` query the OneDrive API rejects. The media
+  allowlist stays enforced server-side; OAuth scope unchanged. Set
+  `list.layout.type: 'tiles'` for thumbnails and added a client-side MIME guard
+  (`NO_MEDIA_ERROR`) in `AddMilestoneScreen`.

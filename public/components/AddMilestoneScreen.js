@@ -16,6 +16,17 @@ const REAUTH_ERROR = 'Sesja wygasła. Zaloguj się ponownie.';
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|m4v|webm)$/i;
 
+// Mirrors the server's MIME allowlist. The consumer picker cannot filter the
+// Files view (a `filters` config errors with `FSObjType`), so reject anything
+// non-media here before it reaches the preview/save.
+const MEDIA_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'video/mp4',
+]);
+
 /**
  * Infers a media MIME type from the Graph file mime or the file name.
  *
@@ -77,13 +88,19 @@ export function AddMilestoneScreen({ onSaved }) {
         picked.endpoint,
         token
       );
+      const mime = inferMime(resolved.mime, resolved.name);
+      if (!MEDIA_MIME.has(mime)) {
+        setItem(null);
+        setPickError(NO_MEDIA_ERROR);
+        return;
+      }
       setItem({
         id: picked.id,
         driveId: picked.driveId,
         endpoint: picked.endpoint,
         downloadUrl: resolved.downloadUrl,
         name: resolved.name,
-        mime: inferMime(resolved.mime, resolved.name),
+        mime,
         width: resolved.width,
         height: resolved.height,
       });

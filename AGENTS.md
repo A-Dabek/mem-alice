@@ -55,9 +55,12 @@
   picker in a self-created full-screen **inline iframe overlay** (no popup;
   body scroll lock, `#app` inert, Escape/Cancel → `CANCELLED`), POSTing into the
   iframe's about:blank document. Consumer base
-  `https://onedrive.live.com/picker`, pivots `oneDrive`/`recent` **disabled**
-  (nav shows only the entry-targeted `oneDrive.photos`), entry
-  `oneDrive.photos` (opens on Photos, not "My files"),
+  `https://onedrive.live.com/picker`, pivots `oneDrive`/`recent` enabled
+  (consumer-supported; business pivots never requested), entry
+  `oneDrive: {}` (opens on "My files"; the `oneDrive.files` sub-config is
+  business-only and errors on consumer), `list.layout.type: 'tiles'` (details
+  shows only file-type icons), no `typesAndSources.filters` (a media filter
+  builds a SharePoint `FSObjType` query consumer rejects),
   `accessibility.enableFocusTrap: true`. Command responses must use the top-level
   id `message.id` (not `message.data.id`) or the picker throws
   `acknowledgeTimeout`. Ignore `command.resource` for consumer
@@ -79,7 +82,10 @@
   hosts the "Wybierz z OneDrive" button (the reserved-slot call to action); the
   button is replaced by the media once chosen and by "Wybieranie..." while
   picking. A "Anuluj" button (`clear-media`) drops the chosen item so the user
-  can re-pick. There is no "no file chosen" placeholder.
+  can re-pick. There is no "no file chosen" placeholder. After resolving the
+  picked item it rejects a MIME outside the server's allowlist
+  (`image/jpeg,png,gif,webp`,`video/mp4`) with `NO_MEDIA_ERROR`, since the
+  consumer picker cannot filter the Files view.
 - `TimelineScreen` rows: `loading|ready|needs-auth|gone|error`, lazy resolution
   is silent-only, with gesture-safe "Zaloguj ponownie" and "Spróbuj ponownie"
   retries. Placeholders, thumbs and expanded media reserve the same

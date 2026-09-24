@@ -171,12 +171,17 @@ about:blank document (required so submitting navigates the iframe), then
 submitted with a hidden `access_token`. `finish()` removes the overlay, the
 message listener and the scroll lock instead of closing a window. Any setup
 failure rejects `PICKER_LOAD_FAILED`. The picker options set
-`accessibility.enableFocusTrap: true` and `entry.oneDrive.photos: {}` so the
-consumer picker opens directly on the **Photos** pivot instead of "My files"
-(entry-targeted pivots render even when absent from `typesAndSources.pivots`).
-`typesAndSources.pivots.oneDrive`/`recent` are set `false` so the nav shows only
-Photos; `leftNav.enabled: false` is the fallback if the sidebar must be removed
-entirely.
+`accessibility.enableFocusTrap: true` and `entry.oneDrive: {}` so the consumer
+picker opens on **My files**. `entry.oneDrive.files` is business-only and fails
+on consumer with `notSupported` (flat-tire page; OneDrive/samples#45), so it is
+not used.
+`typesAndSources.pivots.oneDrive`/`recent` are `true` (the consumer-supported
+pivots). No `typesAndSources.filters` is sent: on consumer a media filter builds
+a SharePoint `FSObjType` query the OneDrive API rejects (`WhereIsNull
+FSObjType`). `list.layout.type` is `'tiles'` so the list renders thumbnails
+rather than file-type icons. The media allowlist is enforced in
+`AddMilestoneScreen` (`NO_MEDIA_ERROR`) and server-side instead, so the picker
+tries to allow any file but a non-media pick is refused.
 
 Handshake: `initialize` → grab `event.ports[0]` → `activate`; on the port handle
 `authenticate` → `result/token`, `pick` → resolve `{ id, driveId, endpoint }`,
@@ -278,6 +283,8 @@ flow and persists `@sharePoint.endpoint` as `milestones.drive_endpoint`.
 | `InvalidAuthenticationToken` "token could not be read" | Graph called with the consumer picker token | resolve via `@sharePoint.endpoint` + picker token |
 | `acknowledgeTimeout` / `ApiError: Timed out` | response ids used `message.data.id` | use `message.id` |
 | business pivots (Shared/Groups) fail on personal | `pivots` omitted | `pivots: { oneDrive: true, recent: true }` |
+| flat-tire "notSupported" page on consumer | `entry.oneDrive.files` (business-only) | use bare `entry.oneDrive: {}` |
+| `FSObjType is not supported for WhereIsNull` | consumer can't run a `typesAndSources` media filter | drop `filters`; enforce the allowlist server-side |
 | `403 Origin not allowed` on Add/Delete | mutation Origin not same-host/allowlisted | use same-origin, or set `ALLOWED_ORIGINS` |
 | `403 Account not allowed` | token identity not in `ALLOWED_EMAILS` | add the account email |
 | `401 Missing bearer token` (`clientError`/`stage` in the warn) | SPA had no ID token and forwarded `X-Auth-Error`/`X-Auth-Stage` | check the client code/stage; silent ID-token miss recovers via the persisted token or `reauthenticate()` |
