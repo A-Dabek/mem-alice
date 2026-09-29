@@ -17,15 +17,12 @@ function Svg({ children }) {
   >${children}</svg>`;
 }
 
-export function PencilIcon() {
+export function HomeIcon() {
   return html`<${Svg}>
-    <path d="M12 20h9" />
-    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    <path d="M3 9.5 12 2l9 7.5" />
+    <path d="M5 9v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9" />
+    <path d="M9.5 21v-6h5v6" />
   </${Svg}>`;
-}
-
-export function CheckIcon() {
-  return html`<${Svg}><path d="M20 6 9 17l-5-5" /></${Svg}>`;
 }
 
 export function TrashIcon() {

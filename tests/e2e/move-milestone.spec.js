@@ -13,55 +13,39 @@ const ITEMS = [
   makeItem({ id: 'mv3', title: 'Third', mime: 'image/png' }),
 ];
 
-async function openEditMode(page) {
-  const toggle = page.getByTestId('edit-mode-toggle');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+async function seedAndOpenEdit(page, request, items = ITEMS) {
+  await clearMilestones(request);
+  await seedMilestones(request, items);
+  await setupApp(page, { items });
+  await page.goto('/');
+  await page.getByTestId('home-edit').click();
 }
 
-test('move/delete controls stay hidden until edit mode is toggled', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+test('the edit route shows delete/move controls immediately', async ({ page, request }) => {
+  await seedAndOpenEdit(page, request);
 
   await expect(page.getByTestId('milestone-title')).toHaveText(['First', 'Second', 'Third']);
-  await expect(page.getByTestId('delete-button')).toHaveCount(0);
-  await expect(page.getByTestId('move-up-button')).toHaveCount(0);
-  await expect(page.getByTestId('move-down-button')).toHaveCount(0);
-
-  await openEditMode(page);
   await expect(page.getByTestId('delete-button')).toHaveCount(3);
   await expect(page.getByTestId('move-up-button')).toHaveCount(3);
   await expect(page.getByTestId('move-down-button')).toHaveCount(3);
 });
 
-test('edit mode blocks media expansion and hides the load button', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+test('the edit route blocks media expansion and hides the load button', async ({
+  page,
+  request,
+}) => {
+  await seedAndOpenEdit(page, request);
 
   await page.getByTestId('milestone-item').last().scrollIntoViewIfNeeded();
   await expect(page.getByTestId('milestone-thumb')).toHaveCount(3);
-
-  await page.getByTestId('milestone-load-button').first().click();
-  await expect(page.getByTestId('milestone-photo')).toHaveCount(1);
-
-  await openEditMode(page);
+  await expect(page.getByTestId('milestone-load-button')).toHaveCount(0);
   await expect(page.getByTestId('milestone-photo')).toHaveCount(0);
   await expect(page.getByTestId('milestone-video')).toHaveCount(0);
-  await expect(page.getByTestId('milestone-load-button')).toHaveCount(0);
 });
 
 test('move controls are disabled at the edges', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+  await seedAndOpenEdit(page, request);
 
-  await openEditMode(page);
   await expect(page.getByTestId('move-up-button').first()).toBeDisabled();
   await expect(page.getByTestId('move-down-button').last()).toBeDisabled();
   await expect(page.getByTestId('move-down-button').first()).toBeEnabled();
@@ -69,12 +53,8 @@ test('move controls are disabled at the edges', async ({ page, request }) => {
 });
 
 test('cancelling a move keeps the order', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+  await seedAndOpenEdit(page, request);
 
-  await openEditMode(page);
   await page.getByTestId('move-down-button').first().click();
 
   const dialog = page.getByTestId('move-confirm-dialog');
@@ -87,12 +67,8 @@ test('cancelling a move keeps the order', async ({ page, request }) => {
 });
 
 test('Escape dismisses the move confirmation', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+  await seedAndOpenEdit(page, request);
 
-  await openEditMode(page);
   await page.getByTestId('move-up-button').nth(1).click();
 
   const dialog = page.getByTestId('move-confirm-dialog');
@@ -105,12 +81,8 @@ test('Escape dismisses the move confirmation', async ({ page, request }) => {
 });
 
 test('confirming a move reorders the wall and persists', async ({ page, request }) => {
-  await clearMilestones(request);
-  await seedMilestones(request, ITEMS);
-  await setupApp(page, { items: ITEMS });
-  await page.goto('/');
+  await seedAndOpenEdit(page, request);
 
-  await openEditMode(page);
   await page.getByTestId('move-down-button').first().click();
   await page.getByTestId('move-confirm').click();
 

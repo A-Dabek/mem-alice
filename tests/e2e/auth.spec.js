@@ -11,24 +11,26 @@ test('signed out shows the sign-in gate', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByTestId('signin-button')).toBeVisible();
-  await expect(page.getByTestId('timeline-wall')).toHaveCount(0);
+  await expect(page.getByTestId('home-add')).toHaveCount(0);
 });
 
-test('signing in reveals the timeline and the account name', async ({ page }) => {
+test('signing in reveals the home buttons and the account name', async ({ page }) => {
   await setupApp(page, { signedIn: false });
   await page.goto('/');
 
   await page.getByTestId('signin-button').click();
 
-  await expect(page.getByTestId('timeline-empty')).toBeVisible();
+  await expect(page.getByTestId('home-timeline')).toBeVisible();
+  await expect(page.getByTestId('home-edit')).toBeVisible();
+  await expect(page.getByTestId('home-add')).toBeVisible();
   await expect(page.getByTestId('app-account')).toHaveText(DEFAULT_ACCOUNT.name);
 });
 
-test('signing out returns to the gate and clears the account', async ({ page }) => {
+test('signing out from home returns to the gate and clears the account', async ({ page }) => {
   await setupApp(page, { signedIn: true });
   await page.goto('/');
 
-  await expect(page.getByTestId('timeline-empty')).toBeVisible();
+  await expect(page.getByTestId('home-add')).toBeVisible();
   await expect(page.getByTestId('app-account')).toHaveText(DEFAULT_ACCOUNT.name);
 
   await page.getByTestId('signout-button').click();

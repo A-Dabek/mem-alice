@@ -17,14 +17,15 @@ Companion docs: `docs/onedrive-picker-poc.md` (handoff/protocol),
 - Every task touching `public/` requires the golden path.
 
 ## Manual golden path (regression guard for OneDrive)
-1. Sign in
-2. "Wybierz z OneDrive"
+1. Sign in (lands on home; `home-add` etc. render)
+2. "Dodaj nowy" → "Wybierz z OneDrive"
 3. Pick photo
 4. Preview renders
-5. Save
-6. Timeline thumbnail renders
+5. Save → home shows the latest card
+6. "Oś czasu" (browser back returns home) → Timeline thumbnail renders
 7. Expand full media
-8. Delete
+8. "Edytuj" → delete/move controls active
+9. Delete
 
 ---
 
@@ -255,6 +256,37 @@ snapped to the real 3:4.
 
 ---
 
+## F — Hash routing: home / timeline / edit / add
+
+Goal: make the browser/native back button work across the app and give the
+app a landing view instead of dropping straight into an editable timeline.
+
+### F — Four hash routes + Home landing — `DONE`
+- `public/app.js`: four routes via `getRoute()` (`''`/`#home` → home,
+  `#timeline` → timeline, `#edit` → edit, `#add` → add; unknown → home);
+  exported `HOME_HASH`/`TIMELINE_HASH`/`EDIT_HASH`/`ADD_HASH` +
+  `goHome`/`goToTimeline`/`goToEdit`/`goToAdd`; `hashchange` still drives the
+  route. Removed the `editMode` state and the `edit-mode-toggle` (plus
+  `PencilIcon`/`CheckIcon`); the header (account + "Wyloguj") renders on
+  home/edit/add and is hidden on `#timeline`; sign-out resets to home.
+- New `public/components/HomeScreen.js`: title, `home-timeline`/`home-edit`/
+  `home-add` buttons, and a static card for the latest milestone (`home-latest`)
+  resolved silently (loading / `home-empty` / `home-reauth` / `home-error`).
+- New `public/components/milestoneData.js`: shared `fetchMilestones`,
+  `resolveMilestone`, `aspectFor`, `authRequiredError`, `statusForError` and the
+  copy constants, imported by both screens.
+- `TimelineScreen`: new props `{ onAddMilestone?, editMode?, readOnly? }`;
+  `readOnly` hides "Dodaj" and forces edit off; `editMode` activates delete/move
+  immediately (no mode toggle, expansion blocked).
+- `public/styles.css`: home screen/actions/latest card styles; dropped the dead
+  `.edit-mode-toggle` rules.
+- Verify: updated `auth`, `routing`, `add-milestone`, `timeline-scroll`,
+  `delete-milestone`, `move-milestone`, `reauth` specs.
+- Status: `pnpm test` 68/68, `pnpm test:e2e` 24/24 green; manual golden path
+  pending.
+
+---
+
 ## Deferred (unchanged)
 - DB migrations (#8)
 - Mobile/redirect sign-in (#9)
@@ -321,3 +353,8 @@ snapped to the real 3:4.
   allowlist stays enforced server-side; OAuth scope unchanged. Set
   `list.layout.type: 'tiles'` for thumbnails and added a client-side MIME guard
   (`NO_MEDIA_ERROR`) in `AddMilestoneScreen`.
+- 2026-09-29 — F DONE: four hash routes (`home`/`timeline`/`edit`/`add`) with
+  nav helpers; new `HomeScreen` + shared `components/milestoneData.js`;
+  `TimelineScreen` gains `readOnly`; removed the `edit-mode-toggle` and the
+  header on `#timeline`. `pnpm test` 68/68, `pnpm test:e2e` 24/24 green;
+  awaiting manual golden path.

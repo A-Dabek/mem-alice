@@ -2,120 +2,22 @@ import { h } from 'https://esm.sh/preact@10.19.3';
 import { useEffect, useLayoutEffect, useRef, useState } from 'https://esm.sh/preact@10.19.3/hooks';
 import htm from 'https://esm.sh/htm@3.1.1';
 
-import { resolveItemCached } from '../onedriveCache.js';
+import { fetchWithAuth, reauthenticate } from '../auth.js';
 import {
-  fetchWithAuth,
-  getAccount,
-  getPickerToken,
-  reauthenticate,
-  trySilentPickerToken,
-} from '../auth.js';
+  aspectFor,
+  authRequiredError,
+  fetchMilestones,
+  GONE_ITEM,
+  LOAD_ERROR,
+  LOADING_ITEM,
+  REAUTH_ITEM,
+  RESOLVE_ERROR,
+  resolveMilestone,
+  statusForError,
+} from './milestoneData.js';
 import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from './icons.js';
 
 const html = htm.bind(h);
-
-const LOAD_ERROR = 'Nie można wczytać kamieni milowych. Spróbuj ponownie.';
-const LOADING_ITEM = 'Ładowanie podglądu...';
-const REAUTH_ITEM = 'Sesja wygasła. Zaloguj się ponownie.';
-const GONE_ITEM = 'Ten element nie jest już dostępny.';
-const RESOLVE_ERROR = 'Nie udało się wczytać podglądu.';
-
-/**
- * Builds a typed `AUTH_REQUIRED` error with the re-auth message.
- *
- * @returns {Error & { code: string }}
- */
-function authRequiredError() {
-  const error = new Error(REAUTH_ITEM);
-  error.code = 'AUTH_REQUIRED';
-  return error;
-}
-
-/**
- * Acquires a picker token. Lazy rows resolve silently only: the
- * IntersectionObserver path has no user gesture, so an interactive popup would
- * be blocked. Interactive acquisition happens exclusively from an explicit
- * button click.
- *
- * @param {boolean} interactive
- * @returns {Promise<string>}
- */
-async function acquirePickerToken(interactive) {
-  try {
-    return interactive ? await getPickerToken() : await trySilentPickerToken();
-  } catch {
-    const error = new Error('re-auth required');
-    error.code = 'AUTH_REQUIRED';
-    throw error;
-  }
-}
-
-/**
- * Resolves one milestone, using the cache and the silent-only token path.
- *
- * @param {object} milestone
- * @param {boolean} interactive
- * @returns {Promise<object>}
- */
-async function resolveMilestone(milestone, interactive) {
-  const account = await getAccount();
-  const accountId = account?.homeAccountId || account?.username || '';
-  const token = await acquirePickerToken(interactive);
-  return resolveItemCached(
-    accountId,
-    milestone.drive_item_id,
-    milestone.drive_id,
-    milestone.drive_endpoint,
-    token
-  );
-}
-
-/**
- * Maps a resolution error to a Timeline row state.
- *
- * @param {Error & { code?: string }} error
- * @returns {'needs-auth' | 'gone' | 'error'}
- */
-function statusForError(error) {
-  if (error?.code === 'AUTH_REQUIRED') return 'needs-auth';
-  if (error?.code === 'NOT_FOUND') return 'gone';
-  return 'error';
-}
-
-/**
- * Reserves a media box's aspect ratio before the media loads: the resolved
- * intrinsic size when known, else 16/9 for video and 4/3 otherwise. Keeps the
- * Timeline from reflowing as thumbnails and expanded media arrive.
- *
- * @param {string} mime
- * @param {number | null} [width]
- * @param {number | null} [height]
- * @returns {string}
- */
-function aspectFor(mime, width, height) {
-  if (width && height) return `${width} / ${height}`;
-  return (mime || '').startsWith('video/') ? '16 / 9' : '4 / 3';
-}
-
-/**
- * Fetches the stored milestone list, oldest first.
- *
- * @returns {Promise<Array<object>>}
- */
-async function fetchMilestones() {
-  let response;
-  try {
-    response = await fetchWithAuth('/api/milestones');
-  } catch (error) {
-    if (error?.code === 'AUTH_REQUIRED') throw authRequiredError();
-    throw new Error(LOAD_ERROR);
-  }
-  if (response.status === 401) throw authRequiredError();
-  if (!response.ok) {
-    throw new Error(LOAD_ERROR);
-  }
-  return response.json();
-}
 
 /**
  * Timeline screen.
@@ -126,9 +28,10 @@ async function fetchMilestones() {
  * expands the full photo/video inline. A deleted/moved source file degrades to
  * a placeholder. Media boxes reserve their aspect ratio to avoid layout shift.
  *
- * @param {{ onAddMilestone: () => void, editMode: boolean }} props
+ * @param {{ onAddMilestone?: () => void, editMode?: boolean, readOnly?: boolean }} props
  */
-export function TimelineScreen({ onAddMilestone, editMode = false }) {
+export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = false }) {
+  const canEdit = editMode && !readOnly;
   const [milestones, setMilestones] = useState(null); // null = still loading
   const [loadError, setLoadError] = useState('');
   const [needsReauth, setNeedsReauth] = useState(false);
@@ -142,14 +45,6 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
   const [pendingMove, setPendingMove] = useState(null); // null | { id, direction, title }
   const [movingId, setMovingId] = useState(null); // busy
   const [moveError, setMoveError] = useState('');
-
-  // Entering edit mode clears any expansion so only thumbs/placeholders remain.
-  useEffect(() => {
-    if (editMode) {
-      setExpanded({});
-      setFullMedia({});
-    }
-  }, [editMode]);
 
   const wallRef = useRef(null);
   const startedRef = useRef(new Set());
@@ -309,15 +204,17 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
   return html`
     <div class="timeline-screen">
       <header class="timeline-masthead">
-        <p class="publication-name">Kamienie milowe</p>
-        <button
-          type="button"
-          class="add-button"
-          data-testid="add-button"
-          onClick=${onAddMilestone}
-        >
-          Dodaj
-        </button>
+        <p class="publication-name">Duże kroki małej Ali</p>
+        ${readOnly
+          ? null
+          : html`<button
+              type="button"
+              class="add-button"
+              data-testid="add-button"
+              onClick=${onAddMilestone}
+            >
+              Dodaj
+            </button>`}
       </header>
       ${milestones.length === 0
         ? html`
@@ -331,7 +228,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                 const e = resolved[milestone.id];
                 const mime = e?.mime || milestone.media_mime || '';
                 const isVideo = mime.startsWith('video/');
-                const isExpanded = !editMode && expanded[milestone.id] && e?.downloadUrl;
+                const isExpanded = !canEdit && expanded[milestone.id] && e?.downloadUrl;
                 const width = e?.width ?? milestone.media_width ?? null;
                 const height = e?.height ?? milestone.media_height ?? null;
                 const ratioStyle = `aspect-ratio: ${aspectFor(mime, width, height)}`;
@@ -369,9 +266,9 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                               src=${e.thumbUrl}
                               alt=${milestone.title || ''}
                               loading="lazy"
-                              onClick=${editMode ? undefined : () => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
+                              onClick=${canEdit ? undefined : () => setExpanded((prev) => ({ ...prev, [milestone.id]: true }))}
                             />
-                            ${editMode
+                            ${canEdit
                               ? null
                               : html`<button
                                   type="button"
@@ -413,7 +310,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false }) {
                               : html`<div class="milestone-photo-placeholder" data-testid="milestone-thumb-placeholder" style=${ratioStyle}>
                                   <span data-testid="milestone-media-loading">${LOADING_ITEM}</span>
                                 </div>`}
-                      ${editMode
+                      ${canEdit
                         ? html`
                             <button
                               type="button"

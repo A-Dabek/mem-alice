@@ -13,9 +13,9 @@ const VIDEO = makeItem({ id: 'vid-1', mime: 'video/mp4', name: 'clip.mp4' });
 test('adding an image milestone previews, saves and renders a thumbnail', async ({ page }) => {
   await setupApp(page, { items: [IMAGE] });
   await page.goto('/');
-  await expect(page.getByTestId('timeline-empty')).toBeVisible();
+  await expect(page.getByTestId('home-empty')).toBeVisible();
 
-  await page.getByTestId('add-button').click();
+  await page.getByTestId('home-add').click();
   await page.getByTestId('picker-button').click();
   await pickFile(page, {
     id: IMAGE.id,
@@ -29,6 +29,11 @@ test('adding an image milestone previews, saves and renders a thumbnail', async 
   await page.getByTestId('subtitle-input').fill('No training wheels this time');
   await page.getByTestId('save-button').click();
 
+  await expect(page.getByTestId('home-latest-heading')).toHaveText('Ostatni dodany');
+  await expect(page.getByTestId('home-latest-title')).toHaveText('Learned to ride a bike');
+  await expect(page.getByTestId('home-latest-thumb')).toBeVisible();
+
+  await page.getByTestId('home-timeline').click();
   await expect(page.getByTestId('milestone-title')).toHaveText('Learned to ride a bike');
   await expect(page.getByTestId('milestone-thumb')).toBeVisible();
   await expect(page.getByTestId('milestone-photo')).toHaveCount(0);
@@ -41,9 +46,9 @@ test('adding an image milestone previews, saves and renders a thumbnail', async 
 test('adding a video milestone previews and expands to a video', async ({ page }) => {
   await setupApp(page, { items: [VIDEO] });
   await page.goto('/');
-  await expect(page.getByTestId('timeline-empty')).toBeVisible();
+  await expect(page.getByTestId('home-empty')).toBeVisible();
 
-  await page.getByTestId('add-button').click();
+  await page.getByTestId('home-add').click();
   await page.getByTestId('picker-button').click();
   await pickFile(page, {
     id: VIDEO.id,
@@ -57,6 +62,10 @@ test('adding a video milestone previews and expands to a video', async ({ page }
   await page.getByTestId('subtitle-input').fill('A video of the big day');
   await page.getByTestId('save-button').click();
 
+  await expect(page.getByTestId('home-latest-title')).toHaveText('First video milestone');
+  await expect(page.getByTestId('home-latest-thumb')).toBeVisible();
+
+  await page.getByTestId('home-timeline').click();
   await expect(page.getByTestId('milestone-title')).toHaveText('First video milestone');
   await expect(page.getByTestId('milestone-thumb')).toBeVisible();
   await expect(page.getByTestId('milestone-video')).toHaveCount(0);
@@ -70,7 +79,7 @@ test('adding a video milestone previews and expands to a video', async ({ page }
 test('clearing the chosen media lets the user pick again', async ({ page }) => {
   await setupApp(page, { items: [IMAGE] });
   await page.goto('/');
-  await page.getByTestId('add-button').click();
+  await page.getByTestId('home-add').click();
   await page.getByTestId('picker-button').click();
   await pickFile(page, {
     id: IMAGE.id,
@@ -98,7 +107,7 @@ test('a portrait photo reserves its intrinsic aspect ratio', async ({ page }) =>
 
   await setupApp(page, { items: [PORTRAIT] });
   await page.goto('/');
-  await page.getByTestId('add-button').click();
+  await page.getByTestId('home-add').click();
   await page.getByTestId('picker-button').click();
   await pickFile(page, {
     id: PORTRAIT.id,
@@ -114,7 +123,7 @@ test('a portrait photo reserves its intrinsic aspect ratio', async ({ page }) =>
   await page.getByTestId('title-input').fill('Portrait milestone');
   await page.getByTestId('save-button').click();
 
-  await expect(page.getByTestId('milestone-thumb')).toHaveAttribute(
+  await expect(page.getByTestId('home-latest-thumb')).toHaveAttribute(
     'style',
     /900 \/ 1200/
   );
@@ -123,7 +132,7 @@ test('a portrait photo reserves its intrinsic aspect ratio', async ({ page }) =>
 test('cancelling the picker leaves the Add screen intact', async ({ page }) => {
   await setupApp(page, { items: [IMAGE] });
   await page.goto('/');
-  await page.getByTestId('add-button').click();
+  await page.getByTestId('home-add').click();
   await page.getByTestId('picker-button').click();
 
   await closePicker(page);

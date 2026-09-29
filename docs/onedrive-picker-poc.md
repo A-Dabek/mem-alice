@@ -214,12 +214,25 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
 (`@content.downloadUrl` lives ~1h); failures are never cached;
 `clearResolutionCache()` is the sign-out hook.
 
-### Screens
+### Screens / routes
 
-- `app.js`: signed-out → `SignInScreen`; signed-in → app shell with the account
-  name + "Wyloguj" and (on the Timeline route) the `edit-mode-toggle` in the
-  header top-left; owns `editMode` and passes it down. Then `#add` route or
-  Timeline.
+- `app.js`: signed-out → `SignInScreen`; signed-in → app shell with four hash
+  routes (`getRoute()`), so the browser/native back button works: `''`/`#home` →
+  `HomeScreen`; `#timeline` → `TimelineScreen readOnly`; `#edit` →
+  `TimelineScreen editMode`; `#add` → `AddMilestoneScreen`; unknown → home.
+  Exports the hash constants (`HOME_HASH`/`TIMELINE_HASH`/`EDIT_HASH`/`ADD_HASH`)
+  and nav helpers (`goHome`/`goToTimeline`/`goToEdit`/`goToAdd`). The header
+  (account + "Wyloguj") renders on home/edit/add and is hidden on `#timeline`;
+  sign-out clears the cache, resets the hash to `''` and returns home.
+- `components/milestoneData.js`: shared data layer for the Timeline and Home
+  screens — `fetchMilestones`, `resolveMilestone`, `aspectFor`,
+  `authRequiredError`, `statusForError` plus the copy constants.
+- `HomeScreen.js` (route home): title, three nav buttons (`home-timeline`,
+  `home-edit`, `home-add`) and a static (non-expandable) card for the latest
+  milestone (`home-latest` = last of the position-ordered list). Resolves the
+  latest thumbnail silently on mount through `milestoneData` and reserves the
+  aspect ratio like the timeline. States: loading / `home-empty` ("Brak
+  wpisów.") / `home-reauth` on silent-token failure / `home-error`.
 - `AddMilestoneScreen.js`: "Wybierz z OneDrive" → `getPickerToken()` →
   `pickFile(token)` → `resolveItem(…, token)` → preview, then
   `POST /api/milestones` via `fetchWithAuth` with the reference plus the resolved
@@ -243,23 +256,26 @@ sessionStorage read-through keyed by account + `drive_item_id`; 50-min TTL
   `object-fit: cover`, expanded media `contain`). Expanded photos keep the
   thumbnail as `src` and swap to the preloaded full-resolution URL only once it
   is decoded (videos use `poster`), so expanding never flashes a blank box.
-  An edit-mode toggle (`edit-mode-toggle`, pencil/check) sits in the app header
-  top-left (next to the account/logout, timeline route only, owned by `app.js`)
-  and overlays circular emoji controls on each media frame: delete (top-left),
-  move up (top-right), move down (bottom-right). Move up/down are disabled at
-  the first/last row and ask for confirmation via a modal reusing the
-  delete-modal markup (`move-confirm`/`move-cancel`), then `POST …/:id/move` and
-  replace the list with the returned ordering. In edit mode expansion is
-  disabled (no load button, `isExpanded` forced false, expanded/full-media state
-  cleared) and Escape dismisses whichever confirmation modal is open.
+  `readOnly` (timeline route) hides the "Dodaj" button and forces edit off.
+  `editMode` (edit route) activates circular overlay controls on each media
+  frame immediately: delete (top-left), move up (top-right), move down
+  (bottom-right). Move up/down are disabled at the first/last row and ask for
+  confirmation via a modal reusing the delete-modal markup
+  (`move-confirm`/`move-cancel`), then `POST …/:id/move` and replace the list
+  with the returned ordering. In edit mode expansion is disabled (no load
+  button, `isExpanded` forced false) and Escape dismisses whichever confirmation
+  modal is open.
 
 Test ids kept: `title-input`, `subtitle-input`, `save-button`, `add-error`,
 `signin-button`, `picker-button`, `picker-cancel`, `media-preview`,
 `milestone-item`, `milestone-photo`, `milestone-video`, `milestone-thumb`,
 `delete-*`, plus `app-account`, `signout-button`, `milestone-reauth`,
-`milestone-retry`, `timeline-reauth`. Edit/move adds `edit-mode-toggle`, `move-up-button`,
-`move-down-button`, `move-confirm-dialog`, `move-confirm`, `move-cancel`,
-`move-error`.
+`milestone-retry`, `timeline-reauth`, and the home controls `home-timeline`,
+`home-edit`, `home-add`, `home-latest`, `home-latest-heading`, `home-empty`,
+`home-reauth`, plus the top-left `header-home` shown on the add/edit routes.
+Edit/move
+adds `move-up-button`, `move-down-button`, `move-confirm-dialog`, `move-confirm`,
+`move-cancel`, `move-error`.
 
 ## Picked item resolution: why not Graph
 

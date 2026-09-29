@@ -7,7 +7,7 @@ isolateDb(test);
 
 test('an empty silent id token shows the re-auth prompt and recovers', async ({ page }) => {
   await setupApp(page, { signedIn: true, silentIdToken: '' });
-  await page.goto('/');
+  await page.goto('/#timeline');
 
   await expect(page.getByTestId('timeline-reauth')).toBeVisible();
   await expect(page.getByTestId('timeline-error')).toHaveText(
@@ -23,7 +23,7 @@ test('an empty silent id token shows the re-auth prompt and recovers', async ({ 
 
 test('a re-authenticated token is persisted across a reload', async ({ page }) => {
   await setupApp(page, { signedIn: true, silentIdToken: '' });
-  await page.goto('/');
+  await page.goto('/#timeline');
 
   await page.getByTestId('timeline-reauth').click();
   await expect(page.getByTestId('timeline-empty')).toBeVisible();

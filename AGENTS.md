@@ -86,25 +86,41 @@
   picked item it rejects a MIME outside the server's allowlist
   (`image/jpeg,png,gif,webp`,`video/mp4`) with `NO_MEDIA_ERROR`, since the
   consumer picker cannot filter the Files view.
-- `TimelineScreen` rows: `loading|ready|needs-auth|gone|error`, lazy resolution
-  is silent-only, with gesture-safe "Zaloguj ponownie" and "Spróbuj ponownie"
-  retries. Placeholders, thumbs and expanded media reserve the same
-  `aspect-ratio` (intrinsic stored/`media_width`/`media_height`, else MIME
-  fallback; thumbs `object-fit:cover`, expanded `contain`). Expanded photos keep
-  the thumbnail as `src` and only swap to the full-resolution URL once it is
-  preloaded (videos use `poster`), so expanding never flashes a blank box.
-  Edit mode (`edit-mode-toggle`, pencil/check, in the app header top-left next
-  to the account/logout) overlays circular controls on the
-  `.milestone-media-frame`: delete top-left, move up top-right, move down
-  bottom-right (`move-up-button`/`move-down-button`, disabled at the edges).
-  Move asks for confirmation in a delete-modal-styled dialog (`move-confirm`/
-  `move-cancel`) then `POST /:id/move` and replaces the list. Edit mode blocks
-  expansion (no load button, `isExpanded` forced false, expanded/full-media
-  cleared); Escape dismisses the open modal.
-- `app.js` → `SignInScreen` when signed out, else app shell (account +
-  "Wyloguj", plus the timeline-only `edit-mode-toggle` in the header) with
-  `AddMilestoneScreen` (`#add`) / `TimelineScreen`. It owns `editMode` and
-  passes it to `TimelineScreen`.
+- `public/components/milestoneData.js` — shared data layer for the Timeline and
+  Home screens: `fetchMilestones`, `resolveMilestone`, `aspectFor`,
+  `authRequiredError`, `statusForError` plus the copy constants (`LOADING_ITEM`,
+  `REAUTH_ITEM`, `GONE_ITEM`, `RESOLVE_ERROR`, `LOAD_ERROR`).
+- `HomeScreen` (route home) — title ("Duże kroki małej Ali"), three buttons
+  (`home-timeline`, `home-edit`, `home-add`), and a static non-expandable card
+  for the latest milestone (`home-latest`, = last of the position-ordered list)
+  under an "Ostatni dodany" heading (`home-latest-heading`). Resolves its
+  thumbnail silently on mount and reserves the aspect ratio like the Timeline;
+  states loading / `home-empty` ("Brak wpisów.") / `home-reauth` on
+  silent-token failure / `home-error`.
+- `TimelineScreen({ onAddMilestone?, editMode?, readOnly? })` rows:
+  `loading|ready|needs-auth|gone|error`, lazy resolution is silent-only, with
+  gesture-safe "Zaloguj ponownie" and "Spróbuj ponownie" retries. Placeholders,
+  thumbs and expanded media reserve the same `aspect-ratio` (intrinsic
+  stored/`media_width`/`media_height`, else MIME fallback; thumbs
+  `object-fit:cover`, expanded `contain`). Expanded photos keep the thumbnail as
+  `src` and only swap to the full-resolution URL once it is preloaded (videos use
+  `poster`), so expanding never flashes a blank box. `readOnly` (timeline route)
+  hides the "Dodaj" button and forces edit off; `editMode` (edit route) overlays
+  circular controls on the `.milestone-media-frame` immediately: delete
+  top-left, move up top-right, move down bottom-right
+  (`move-up-button`/`move-down-button`, disabled at the edges). Move asks for
+  confirmation in a delete-modal-styled dialog (`move-confirm`/`move-cancel`)
+  then `POST /:id/move` and replaces the list. Edit mode blocks expansion (no
+  load button, `isExpanded` forced false); Escape dismisses the open modal.
+- `app.js` → `SignInScreen` when signed out, else app shell. Four hash routes
+  (`getRoute()`; exported `HOME_HASH`/`TIMELINE_HASH`/`EDIT_HASH`/`ADD_HASH` and
+  `goHome`/`goToTimeline`/`goToEdit`/`goToAdd` so the native back button works):
+  `''`/`#home` → `HomeScreen`; `#timeline` → `TimelineScreen readOnly`;
+  `#edit` → `TimelineScreen editMode onAddMilestone=goToAdd`; `#add` →
+  `AddMilestoneScreen onSaved=goHome`; unknown → home. The header (account +
+  "Wyloguj") renders on home/edit/add and is hidden on `#timeline`; edit/add
+  additionally show a top-left `header-home` home-icon button; sign-out resets
+  to home.
 
 ## Environment
 - Copy `.env.example` → `.env` (gitignored) and fill it in. `pnpm start:env`

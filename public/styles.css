@@ -108,6 +108,22 @@ button {
   opacity: 0.6;
 }
 
+.app-home-button {
+  margin-right: auto;
+  width: 40px;
+  height: 40px;
+  min-height: auto;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-text);
+  border-radius: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
 button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -396,6 +412,96 @@ input[type="file"]::file-selector-button {
   padding: 0 1.1rem;
 }
 
+/* Home landing screen - title, nav actions, latest milestone card. */
+
+.home-screen {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0 0 2.5rem;
+}
+
+.home-actions button {
+  flex: 1 1 8rem;
+  min-height: var(--touch-target);
+  border: 1px solid var(--color-text);
+  border-radius: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.home-actions button:active {
+  opacity: 0.85;
+}
+
+.home-latest-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-latest-heading {
+  margin: 0 0 1rem;
+  font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.home-latest {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-latest-thumb {
+  width: 100%;
+  display: block;
+  background: var(--color-bg);
+  object-fit: cover;
+  box-sizing: border-box;
+}
+
+.home-latest-placeholder {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-sizing: border-box;
+}
+
+.home-latest-status {
+  color: var(--color-muted);
+  font-size: 1rem;
+}
+
+.home-screen .milestone-load-button {
+  position: static;
+  transform: none;
+}
+
 /* Timeline screen - an unframed vertical sequence, oldest first. */
 
 .timeline-screen {
@@ -439,28 +545,6 @@ input[type="file"]::file-selector-button {
 
 .add-button:active {
   opacity: 0.85;
-}
-
-.edit-mode-toggle {
-  width: 40px;
-  height: 40px;
-  min-height: auto;
-  padding: 0;
-  margin-right: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-text);
-  border-radius: 0;
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-}
-
-.edit-mode-toggle[aria-pressed='true'] {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
 }
 
 .empty-state {

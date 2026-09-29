@@ -18,9 +18,10 @@ const ITEMS = [
 test('shows the empty state when there are no milestones yet', async ({ page }) => {
   await setupApp(page);
   await page.goto('/');
+  await page.getByTestId('home-timeline').click();
 
   await expect(page.getByTestId('timeline-empty')).toBeVisible();
-  await expect(page.getByTestId('add-button')).toBeVisible();
+  await expect(page.getByTestId('add-button')).toHaveCount(0);
 });
 
 test('renders seeded milestones as a vertical wall, oldest first', async ({ page, request }) => {
@@ -28,6 +29,7 @@ test('renders seeded milestones as a vertical wall, oldest first', async ({ page
   await seedMilestones(request, ITEMS);
   await setupApp(page, { items: ITEMS });
   await page.goto('/');
+  await page.getByTestId('home-timeline').click();
 
   await expect(page.getByTestId('timeline-wall')).toBeVisible();
   await expect(page.getByTestId('milestone-title')).toHaveText(ITEMS.map((i) => i.title));
@@ -74,6 +76,7 @@ test('expanding keeps the thumbnail visible until the full photo loads', async (
   });
 
   await page.goto('/');
+  await page.getByTestId('home-timeline').click();
   await expect(page.getByTestId('milestone-thumb')).toBeVisible();
   await page.getByTestId('milestone-load-button').first().click();
 
