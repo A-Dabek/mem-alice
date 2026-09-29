@@ -40,7 +40,7 @@ export function SignInScreen({ onSignedIn }) {
 
   return html`
     <div class="signin-screen">
-      <h1>Małe kroki<br />małej Ali</h1>
+      <h1>Duże kroki<br />małej Ali</h1>
       <button
         type="button"
         class="signin-button"

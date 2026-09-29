@@ -7,7 +7,7 @@
 }
 
 :root {
-  --color-bg: #f7f4ee;
+  --color-bg: #ffffff;
   --color-surface: #fffdf8;
   --color-text: #1a1815;
   --color-muted: #6f6a60;
@@ -608,7 +608,7 @@ input[type="file"]::file-selector-button {
 .milestone-subtitle {
   margin: 0.15rem 0 0;
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   font-weight: 100;
   letter-spacing: 0.08em;
   color: var(--color-muted);
