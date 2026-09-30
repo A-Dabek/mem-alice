@@ -67,6 +67,14 @@ function moveMilestone(baseUrl, id, direction) {
   });
 }
 
+function patchMilestone(baseUrl, id, body) {
+  return fetch(`${baseUrl}/api/milestones/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 test('GET /api/config returns clientId and consumer authority', async () => {
   const { baseUrl, close } = await startTestServer();
 
@@ -492,6 +500,110 @@ test('GET /api/milestones keeps position order across delete and re-add', async 
       rows.map((row) => row.title),
       ['title-first', 'title-third', 'title-fourth']
     );
+  } finally {
+    await close();
+  }
+});
+
+test('PATCH /api/milestones/:id updates title and subtitle and returns the row', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const id = await createMilestone(baseUrl, 'first');
+
+    const response = await patchMilestone(baseUrl, id, {
+      title: 'Nowy tytuł',
+      subtitle: 'Nowy podtytuł',
+    });
+    assert.equal(response.status, 200);
+
+    const body = await response.json();
+    assert.equal(body.id, id);
+    assert.equal(body.title, 'Nowy tytuł');
+    assert.equal(body.subtitle, 'Nowy podtytuł');
+
+    const rows = await listMilestones(baseUrl);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, 'Nowy tytuł');
+    assert.equal(rows[0].subtitle, 'Nowy podtytuł');
+  } finally {
+    await close();
+  }
+});
+
+test('PATCH /api/milestones/:id keeps subtitle when omitted and clears it with ""', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const id = await createMilestone(baseUrl, 'first');
+
+    const omitted = await patchMilestone(baseUrl, id, { title: 'Tylko tytuł' });
+    assert.equal(omitted.status, 200);
+    assert.equal((await omitted.json()).subtitle, 'subtitle-first');
+
+    const cleared = await patchMilestone(baseUrl, id, { title: 'Tylko tytuł', subtitle: '' });
+    assert.equal(cleared.status, 200);
+    assert.equal((await cleared.json()).subtitle, '');
+  } finally {
+    await close();
+  }
+});
+
+test('PATCH /api/milestones/:id never changes the media references', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const id = await createMilestone(baseUrl, 'first');
+    const before = (await listMilestones(baseUrl))[0];
+
+    const response = await patchMilestone(baseUrl, id, {
+      title: 'Zmieniony',
+      subtitle: 'Zmieniony',
+      drive_item_id: 'evil-item',
+      media_mime: 'video/mp4',
+    });
+    assert.equal(response.status, 200);
+
+    const after = (await listMilestones(baseUrl))[0];
+    assert.equal(after.title, 'Zmieniony');
+    assert.equal(after.drive_item_id, before.drive_item_id);
+    assert.equal(after.media_mime, before.media_mime);
+    assert.equal(after.media_width, before.media_width);
+    assert.equal(after.media_height, before.media_height);
+    assert.equal(after.position, before.position);
+  } finally {
+    await close();
+  }
+});
+
+test('PATCH /api/milestones/:id validates the edit payload', async () => {
+  const { baseUrl, close } = await startTestServer();
+
+  try {
+    const id = await createMilestone(baseUrl, 'first');
+
+    for (const body of [
+      {},
+      { title: '' },
+      { title: 'x'.repeat(201) },
+      { title: 'ok', subtitle: 'x'.repeat(501) },
+      { title: 1 },
+    ]) {
+      const res = await patchMilestone(baseUrl, id, body);
+      assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}`);
+      assert.equal(typeof (await res.json()).error, 'string');
+    }
+
+    for (const bad of ['abc', '0', '-1', '1.5']) {
+      const res = await patchMilestone(baseUrl, bad, { title: 'ok' });
+      assert.equal(res.status, 400, `expected 400 for id=${bad}`);
+    }
+
+    const missing = await patchMilestone(baseUrl, 9999, { title: 'ok' });
+    assert.equal(missing.status, 404);
+
+    // The rejected edits left the row untouched.
+    assert.equal((await listMilestones(baseUrl))[0].title, 'title-first');
   } finally {
     await close();
   }

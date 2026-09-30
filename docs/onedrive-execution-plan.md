@@ -24,7 +24,7 @@ Companion docs: `docs/onedrive-picker-poc.md` (handoff/protocol),
 5. Save → home shows the latest card
 6. "Oś czasu" (browser back returns home) → Timeline thumbnail renders
 7. Expand full media
-8. "Edytuj" → delete/move controls active
+8. "Edytuj" → delete/move/edit controls active; edit title/subtitle; save persists after refresh
 9. Delete
 
 ---
@@ -285,6 +285,27 @@ app a landing view instead of dropping straight into an editable timeline.
 - Status: `pnpm test` 68/68, `pnpm test:e2e` 24/24 green; manual golden path
   pending.
 
+## G — Inline title/subtitle editing on the edit route
+
+Goal: edit a milestone's title/subtitle in place, without a modal and without
+touching the OneDrive media references. Delete/move unchanged.
+
+### G — PATCH text + inline pencil editor — `DONE`
+- `server/routes/milestones.js`: `PATCH /:id` (`title` required non-empty,
+  `subtitle` omitted keeps / `''` clears); validates id (400) and existence
+  (404); ignores `drive_*`/`media_*`/`item_name`/`position`; returns the updated
+  full row.
+- `public/components/TimelineScreen.js` (edit route): pencil overlay
+  `edit-button` bottom-left mirrors delete; reveals an inline
+  `milestone-edit-form` (`edit-title-input`/`edit-subtitle-input`, maxlength
+  200/500) with `edit-save-button`/`edit-cancel-button`; client trims and
+  requires a title (`edit-error`), `PATCH`es and replaces only that row; Escape
+  cancels. `public/components/icons.js`: `PencilIcon`.
+- Verify: `server/server.test.js` PATCH round-trip / PATCH semantics /
+  refs-unchanged / validation; new `tests/e2e/edit-milestone.spec.js`.
+- Status: `pnpm test` 72/72, `pnpm test:e2e` 29/29 green; awaiting manual golden
+  path.
+
 ---
 
 ## Deferred (unchanged)
@@ -358,3 +379,7 @@ app a landing view instead of dropping straight into an editable timeline.
   `TimelineScreen` gains `readOnly`; removed the `edit-mode-toggle` and the
   header on `#timeline`. `pnpm test` 68/68, `pnpm test:e2e` 24/24 green;
   awaiting manual golden path.
+- 2026-09-30 — G DONE: `PATCH /api/milestones/:id` (title/subtitle only; refs
+  and position immutable) + pencil `edit-button`/inline `milestone-edit-form` on
+  the edit route. `pnpm test` 72/72, `pnpm test:e2e` 29/29 green; awaiting
+  manual golden path.

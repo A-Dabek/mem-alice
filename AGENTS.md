@@ -28,10 +28,13 @@
   `{title,subtitle?,drive_item_id,drive_id?,drive_endpoint?,media_mime,media_width?,media_height?,item_name?}`
   (appends last), `POST /:id/move` `{direction:'up'|'down'}`
   (swaps with the adjacent row, returns the re-ordered list; 400 bad
-  id/direction, 404 unknown, edge no-op), `DELETE /:id`, bulk `DELETE /` (test
-  helper). Validates a MIME allowlist (`image/jpeg,png,gif,webp`, `video/mp4`),
-  length caps, positive-integer media dimensions, and re-checks the
-  `drive_endpoint` host.
+  id/direction, 404 unknown, edge no-op), `PATCH /:id` `{title,subtitle?}`
+  (inline text edit: `title` required non-empty, `subtitle` omitted keeps the
+  stored value and explicit `''` clears it; media/Graph refs and `position` are
+  ignored, so this route cannot mutate them; returns the updated full row),
+  `DELETE /:id`, bulk `DELETE /` (test helper). Validates a MIME allowlist
+  (`image/jpeg,png,gif,webp`, `video/mp4`), length caps, positive-integer media
+  dimensions, and re-checks the `drive_endpoint` host.
 - `server/auth.js` verifies the SPA's ID token (OIDC discovery + `jose`
   RS256/JWKS, `aud === MS_CLIENT_ID`, `exp`, issuer), enforces `ALLOWED_EMAILS`,
   and checks `Origin` on mutations. Mounted on `/api/milestones`;
@@ -107,11 +110,16 @@
   `poster`), so expanding never flashes a blank box. `readOnly` (timeline route)
   hides the "Dodaj" button and forces edit off; `editMode` (edit route) overlays
   circular controls on the `.milestone-media-frame` immediately: delete
-  top-left, move up top-right, move down bottom-right
-  (`move-up-button`/`move-down-button`, disabled at the edges). Move asks for
-  confirmation in a delete-modal-styled dialog (`move-confirm`/`move-cancel`)
-  then `POST /:id/move` and replaces the list. Edit mode blocks expansion (no
-  load button, `isExpanded` forced false); Escape dismisses the open modal.
+  top-left, move up top-right, move down bottom-right, edit (pencil)
+  bottom-left (`move-up-button`/`move-down-button`/`edit-button`, move buttons
+  disabled at the edges). Move asks for confirmation in a delete-modal-styled
+  dialog (`move-confirm`/`move-cancel`) then `POST /:id/move` and replaces the
+  list. Edit reveals an inline `milestone-edit-form` in place of the row's
+  title/subtitle (`edit-title-input`/`edit-subtitle-input`, maxlength 200/500,
+  `edit-save-button`/`edit-cancel-button`); it trims and requires a non-empty
+  title (`edit-error`), `PATCH`es `{title,subtitle}` and replaces only that row
+  (media refs untouched); Escape cancels. Edit mode blocks expansion (no
+  load button, `isExpanded` forced false); Escape also dismisses the open modal.
 - `app.js` → `SignInScreen` when signed out, else app shell. Four hash routes
   (`getRoute()`; exported `HOME_HASH`/`TIMELINE_HASH`/`EDIT_HASH`/`ADD_HASH` and
   `goHome`/`goToTimeline`/`goToEdit`/`goToAdd` so the native back button works):
@@ -134,7 +142,7 @@
   active/ignored.
 
 ## Testing
-- **Unit**: `pnpm test` → `node --test server/ public/` (68 tests:
+- **Unit**: `pnpm test` → `node --test server/ public/` (72 tests:
   `server/server.test.js`, `server/auth.test.js`, `public/onedrive.test.js`,
   `public/onedriveCache.test.js`, `public/auth.test.js`).
 - **E2E**: `pnpm test:e2e` (single `playwright test`). Specs use stubs in

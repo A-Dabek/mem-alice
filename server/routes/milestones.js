@@ -106,6 +106,41 @@ function validateMilestonePayload(body) {
 }
 
 /**
+ * Validates an inline edit payload. Only the text fields may change here: the
+ * media/Graph references and `position` are deliberately ignored so this route
+ * can never mutate them. `subtitle` is optional (PATCH semantics): omitted
+ * keeps the stored value, an explicit empty string clears it.
+ *
+ * @param {unknown} body
+ * @returns {string | null} an error message, or null if valid.
+ */
+function validateEditPayload(body) {
+  if (!body || typeof body !== 'object') {
+    return 'Request body must be a JSON object';
+  }
+
+  if (typeof body.title !== 'string' || body.title.length === 0) {
+    return 'Field "title" is required and must be a non-empty string';
+  }
+  if (body.title.length > MAX_LENGTHS.title) {
+    return `Field "title" must be at most ${MAX_LENGTHS.title} characters`;
+  }
+
+  if (
+    body.subtitle !== undefined &&
+    body.subtitle !== null &&
+    typeof body.subtitle !== 'string'
+  ) {
+    return 'Field "subtitle" must be a string';
+  }
+  if (typeof body.subtitle === 'string' && body.subtitle.length > MAX_LENGTHS.subtitle) {
+    return `Field "subtitle" must be at most ${MAX_LENGTHS.subtitle} characters`;
+  }
+
+  return null;
+}
+
+/**
  * Builds the /api/milestones router.
  *
  * The server never talks to Graph and never sees media: it only stores the
@@ -128,6 +163,10 @@ export function createMilestonesRouter(db) {
   );
   const deleteOneStmt = db.prepare('DELETE FROM milestones WHERE id = ?');
   const findByIdStmt = db.prepare('SELECT id, position FROM milestones WHERE id = ?');
+  const findRowStmt = db.prepare(`SELECT ${LIST_COLUMNS} FROM milestones WHERE id = ?`);
+  const updateTextStmt = db.prepare(
+    'UPDATE milestones SET title = ?, subtitle = ? WHERE id = ?'
+  );
   const neighborStmt = {
     up: db.prepare(
       'SELECT id, position FROM milestones WHERE position < ? ORDER BY position DESC, id DESC LIMIT 1'
@@ -209,6 +248,34 @@ export function createMilestonesRouter(db) {
     }
 
     return res.json(listStmt.all());
+  });
+
+  router.patch('/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      logger.warn('error while updating milestone', { reason: 'invalid id' });
+      return res.status(400).json({ error: 'Invalid milestone id' });
+    }
+
+    const error = validateEditPayload(req.body);
+    if (error) {
+      logger.warn('error while updating milestone', { reason: error, id });
+      return res.status(400).json({ error });
+    }
+
+    const existing = findRowStmt.get(id);
+    if (!existing) {
+      logger.warn('error while updating milestone', { reason: 'not found', id });
+      return res.status(404).json({ error: 'Milestone not found' });
+    }
+
+    const subtitle =
+      req.body.subtitle === undefined || req.body.subtitle === null
+        ? existing.subtitle
+        : req.body.subtitle;
+    updateTextStmt.run(req.body.title, subtitle, id);
+    logger.info('milestone updated', { id });
+    return res.json(findRowStmt.get(id));
   });
 
   router.delete('/:id', (req, res) => {

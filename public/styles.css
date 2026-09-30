@@ -613,6 +613,55 @@ input[type="file"]::file-selector-button {
   right: 0.6rem;
 }
 
+.edit-button {
+  bottom: 0.6rem;
+  left: 0.6rem;
+}
+
+/* Inline title/subtitle editor shown in edit mode. */
+.milestone-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.milestone-edit-form .error {
+  margin-top: 0;
+  text-align: left;
+}
+
+.milestone-edit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.milestone-edit-actions button {
+  flex: 1 1 0;
+  width: auto;
+  margin-top: 0;
+  min-height: 40px;
+  padding: 0 1rem;
+  border-radius: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.edit-cancel-button {
+  border: 1px solid var(--color-text);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.edit-save-button {
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
 .delete-modal-overlay {
   position: fixed;
   inset: 0;

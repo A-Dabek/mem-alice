@@ -15,9 +15,12 @@ import {
   resolveMilestone,
   statusForError,
 } from './milestoneData.js';
-import { ArrowDownIcon, ArrowUpIcon, TrashIcon } from './icons.js';
+import { ArrowDownIcon, ArrowUpIcon, PencilIcon, TrashIcon } from './icons.js';
 
 const html = htm.bind(h);
+
+const NO_TITLE_ERROR = 'Wpisz tytuł.';
+const EDIT_SAVE_ERROR = 'Nie można zapisać kamienia milowego. Spróbuj ponownie.';
 
 /**
  * Timeline screen.
@@ -45,9 +48,15 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
   const [pendingMove, setPendingMove] = useState(null); // null | { id, direction, title }
   const [movingId, setMovingId] = useState(null); // busy
   const [moveError, setMoveError] = useState('');
+  const [editingId, setEditingId] = useState(null); // null | number
+  const [editTitle, setEditTitle] = useState('');
+  const [editSubtitle, setEditSubtitle] = useState('');
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const wallRef = useRef(null);
   const startedRef = useRef(new Set());
+  const titleInputRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +85,53 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
       // Keep the re-auth affordance visible; the next click retries.
     }
   }
+
+  function startEditing(milestone) {
+    setEditingId(milestone.id);
+    setEditTitle(milestone.title);
+    setEditSubtitle(milestone.subtitle || '');
+    setEditError('');
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditError('');
+  }
+
+  async function handleSaveEdit(event) {
+    event.preventDefault();
+    if (savingEdit) return;
+
+    const title = editTitle.trim();
+    if (!title) {
+      setEditError(NO_TITLE_ERROR);
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      const response = await fetchWithAuth('/api/milestones/' + editingId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, subtitle: editSubtitle.trim() }),
+      });
+      if (response.status === 401) throw authRequiredError();
+      if (!response.ok) throw new Error('update failed');
+
+      const updated = await response.json();
+      setMilestones((prev) => prev.map((item) => (item.id === editingId ? updated : item)));
+      setEditingId(null);
+    } catch (error) {
+      setEditError(error?.code === 'AUTH_REQUIRED' ? REAUTH_ITEM : EDIT_SAVE_ERROR);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  useEffect(() => {
+    if (editingId !== null && titleInputRef.current) titleInputRef.current.focus();
+  }, [editingId]);
 
   function loadOne(id, { interactive = false, force = false } = {}) {
     if (!force && !interactive && startedRef.current.has(id)) return;
@@ -153,14 +209,19 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
     }
   }, [expanded, resolved, milestones, fullMedia]);
 
-  // Escape closes whichever confirmation modal is open.
+  // Escape dismisses whichever confirmation modal is open, or an in-progress
+  // inline edit.
   const escapeEffect = typeof useLayoutEffect === 'function' ? useLayoutEffect : useEffect;
   escapeEffect(() => {
-    if (pendingDeleteId === null && pendingMove === null) return undefined;
+    if (pendingDeleteId === null && pendingMove === null && editingId === null) {
+      return undefined;
+    }
     function onKey(e) {
       if (e.key === 'Escape' || e.key === 'Esc') {
         setPendingDeleteId(null);
         setPendingMove(null);
+        setEditingId(null);
+        setEditError('');
       }
     }
     window.addEventListener('keydown', onKey);
@@ -169,7 +230,7 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('keydown', onKey);
     };
-  }, [pendingDeleteId, pendingMove]);
+  }, [pendingDeleteId, pendingMove, editingId]);
 
   if (needsReauth) {
     return html`
@@ -322,6 +383,14 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
                             ><${TrashIcon} /></button>
                             <button
                               type="button"
+                              class="milestone-control edit-button"
+                              data-testid="edit-button"
+                              data-id=${milestone.id}
+                              aria-label="Edytuj kamień milowy"
+                              onClick=${() => startEditing(milestone)}
+                            ><${PencilIcon} /></button>
+                            <button
+                              type="button"
                               class="milestone-control move-up-button"
                               data-testid="move-up-button"
                               data-id=${milestone.id}
@@ -341,8 +410,56 @@ export function TimelineScreen({ onAddMilestone, editMode = false, readOnly = fa
                           `
                         : null}
                     </div>
-                    <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
-                    <p class="milestone-subtitle" data-testid="milestone-subtitle">${milestone.subtitle}</p>
+                    ${editingId === milestone.id
+                      ? html`
+                          <form class="milestone-edit-form" onSubmit=${handleSaveEdit}>
+                            <input
+                              type="text"
+                              class="edit-title-input"
+                              data-testid="edit-title-input"
+                              maxlength="200"
+                              aria-label="Tytuł"
+                              value=${editTitle}
+                              ref=${titleInputRef}
+                              onInput=${(event) => setEditTitle(event.target.value)}
+                            />
+                            <input
+                              type="text"
+                              class="edit-subtitle-input"
+                              data-testid="edit-subtitle-input"
+                              maxlength="500"
+                              aria-label="Podtytuł"
+                              value=${editSubtitle}
+                              onInput=${(event) => setEditSubtitle(event.target.value)}
+                            />
+                            ${editError
+                              ? html`<p class="error" data-testid="edit-error">${editError}</p>`
+                              : null}
+                            <div class="milestone-edit-actions">
+                              <button
+                                type="button"
+                                class="edit-cancel-button"
+                                data-testid="edit-cancel-button"
+                                disabled=${savingEdit}
+                                onClick=${cancelEditing}
+                              >
+                                Anuluj
+                              </button>
+                              <button
+                                type="submit"
+                                class="edit-save-button"
+                                data-testid="edit-save-button"
+                                disabled=${savingEdit}
+                              >
+                                ${savingEdit ? 'Zapisywanie...' : 'Zapisz'}
+                              </button>
+                            </div>
+                          </form>
+                        `
+                      : html`
+                          <p class="milestone-title" data-testid="milestone-title">${milestone.title}</p>
+                          <p class="milestone-subtitle" data-testid="milestone-subtitle">${milestone.subtitle}</p>
+                        `}
                   </div>
                 `;
               })}
