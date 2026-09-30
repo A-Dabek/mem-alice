@@ -692,7 +692,7 @@ input[type="file"]::file-selector-button {
 .milestone-subtitle {
   margin: 0.15rem 0 0;
   font-family: "Aileron Thin", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 100;
   letter-spacing: 0.08em;
   color: var(--color-muted);
